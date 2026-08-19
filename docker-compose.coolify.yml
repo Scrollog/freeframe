@@ -177,6 +177,15 @@ services:
       minio:
         condition: service_healthy
     command: sh -c "celery -A apps.api.tasks.celery_app worker -Q transcoding -c $${TRANSCODING_CONCURRENCY:-2} --loglevel=warning"
+    # TRANSCODING_CONCURRENCY limita tarefas Celery, NAO o ffmpeg por dentro:
+    # sem -threads, o libx264 usa todos os nucleos e um unico job satura a maquina
+    # (medido: 555% de CPU, load 23 num host de 8 nucleos, com Supabase ao lado).
+    # O teto abaixo e de cgroup — os parametros de encoding (preset fast, CRF
+    # 20/22/26) ficam intactos, so o encode demora mais.
+    cpus: ${WORKER_CPUS:-4.0}
+    # Abaixo do padrao (1024): sob disputa, a transcodificacao cede a vez para
+    # as outras apps em vez de competir de igual para igual.
+    cpu_shares: 512
     restart: unless-stopped
 
   email_worker:
