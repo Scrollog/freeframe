@@ -42,6 +42,28 @@ def parse_probe_metadata(data: dict) -> Optional[VideoMetadata]:
     )
 
 
+# x264 presets, slowest to fastest. A faster preset spends less CPU per frame and
+# produces a slightly larger file at the SAME visual quality, because the rate
+# control here is CRF (constant quality), not a fixed bitrate. On CPU-bound hosts
+# that is the trade you want: encoding is the bottleneck, disk is not.
+X264_PRESETS = (
+    "placebo", "veryslow", "slower", "slow", "medium",
+    "fast", "faster", "veryfast", "superfast", "ultrafast",
+)
+DEFAULT_X264_PRESET = "veryfast"
+
+
+def resolve_x264_preset() -> str:
+    """Read TRANSCODER_PRESET, falling back to the default when unset or bogus.
+
+    Validated against the allowlist on purpose: an unrecognised preset makes
+    ffmpeg exit non-zero, which would fail EVERY video until someone noticed the
+    typo. Silently using the default is the safer failure mode here.
+    """
+    preset = (os.environ.get("TRANSCODER_PRESET") or "").strip().lower()
+    return preset if preset in X264_PRESETS else DEFAULT_X264_PRESET
+
+
 class FFmpegTranscoder(BaseTranscoder):
     def __init__(self, s3_client, bucket: str, s3_endpoint: str = None):
         self.s3 = s3_client
@@ -170,13 +192,14 @@ class FFmpegTranscoder(BaseTranscoder):
                 "-filter_complex", filter_complex,
             ]
 
+            preset = resolve_x264_preset()
             for i, quality in enumerate(qualities):
                 scale, crf = QUALITY_MAP[quality]
                 ffmpeg_cmd += ["-map", f"[{quality}]"]
                 if has_audio:
                     ffmpeg_cmd += ["-map", "a:0"]
                 ffmpeg_cmd += [
-                    f"-c:v:{i}", "libx264", f"-crf", str(crf), "-preset", "fast",
+                    f"-c:v:{i}", "libx264", f"-crf", str(crf), "-preset", preset,
                     "-force_key_frames", "expr:gte(t,n_forced*2)",
                 ]
 
