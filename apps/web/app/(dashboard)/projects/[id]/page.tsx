@@ -348,6 +348,55 @@ export default function ProjectDetailPage() {
     if (files.length > 0) setAssetName(files[0].name.replace(/\.[^/.]+$/, ""));
   };
 
+  // ─── Drag & drop de arquivos do sistema ──────────────────────────────
+  // Só reage a arrastos vindos do SO. Os arrastos internos (mover assets e
+  // pastas) carregam "application/json" em vez de "Files" — sem esse filtro,
+  // arrastar um asset para outra pasta abriria o diálogo de upload.
+  const [fileDragActive, setFileDragActive] = React.useState(false);
+  // dragenter/dragleave disparam também nos filhos: um contador evita que o
+  // overlay pisque ao passar o cursor sobre cada card.
+  const fileDragDepth = React.useRef(0);
+
+  const isFileDrag = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types ?? []).includes("Files");
+
+  const handleFileDragEnter = (e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    fileDragDepth.current += 1;
+    setFileDragActive(true);
+  };
+
+  const handleFileDragOver = (e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    // Sem preventDefault aqui o navegador abre o arquivo na aba em vez de
+    // entregar o drop — é o "+ Copiar" do cursor sem nada acontecer.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleFileDragLeave = (e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    fileDragDepth.current -= 1;
+    if (fileDragDepth.current <= 0) {
+      fileDragDepth.current = 0;
+      setFileDragActive(false);
+    }
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    fileDragDepth.current = 0;
+    setFileDragActive(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    // Cai no mesmo fluxo do botão Upload: o diálogo abre já preenchido, o
+    // usuário confirma o nome e o envio respeita a pasta atual.
+    handleFilesSelected(files);
+    setUploadOpen(true);
+  };
+
   const handleStartUpload = () => {
     pendingFiles.forEach((file) => {
       const name =
@@ -592,9 +641,30 @@ export default function ProjectDetailPage() {
 
       {/* ─── Main Content ───────────────────────────────────────────────── */}
       <div
-        className="flex-1 flex flex-col min-w-0 bg-bg-primary h-full overflow-y-auto"
+        className="relative flex-1 flex flex-col min-w-0 bg-bg-primary h-full overflow-y-auto"
         onClick={() => setSelectedAsset(null)}
+        onDragEnter={handleFileDragEnter}
+        onDragOver={handleFileDragOver}
+        onDragLeave={handleFileDragLeave}
+        onDrop={handleFileDrop}
       >
+        {fileDragActive && (
+          /* pointer-events-none: o overlay é só visual — se ele capturasse o
+             mouse, o drop cairia nele e não no container que trata o evento. */
+          <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-accent/10 backdrop-blur-[2px]">
+            <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-accent bg-bg-secondary/95 px-10 py-8 shadow-xl">
+              <Upload className="h-8 w-8 text-accent" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-text-primary">
+                  Solte para enviar
+                </p>
+                <p className="mt-0.5 text-xs text-text-secondary">
+                  {currentFolderId ? "Envia para a pasta atual" : "Envia para a raiz do projeto"}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="px-5 pt-3 pb-6 space-y-3">
           {/* Asset grid, Share links, or Trash view */}
           {showShareLinks && !selectedShareLink ? (

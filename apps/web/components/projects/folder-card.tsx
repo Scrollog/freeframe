@@ -132,6 +132,10 @@ export function FolderCard({
 
   // Drop target
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    // Files dragged in from the OS are handled by the page-level dropzone, which
+    // uploads them into the folder currently open. Highlighting this card would
+    // promise a per-folder drop that doesn't happen, so let the event bubble.
+    if (Array.from(e.dataTransfer.types ?? []).includes('Files')) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     setIsDragOver(true)
