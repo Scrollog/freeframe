@@ -178,13 +178,17 @@ services:
         condition: service_healthy
     command: sh -c "celery -A apps.api.tasks.celery_app worker -Q transcoding -c $${TRANSCODING_CONCURRENCY:-2} --loglevel=warning"
     # TRANSCODING_CONCURRENCY limita tarefas Celery, NAO o ffmpeg por dentro:
-    # sem -threads, o libx264 usa todos os nucleos e um unico job satura a maquina
-    # (medido: 555% de CPU, load 23 num host de 8 nucleos, com Supabase ao lado).
-    # O teto abaixo e de cgroup — os parametros de encoding (preset fast, CRF
-    # 20/22/26) ficam intactos, so o encode demora mais.
-    cpus: ${WORKER_CPUS:-4.0}
-    # Abaixo do padrao (1024): sob disputa, a transcodificacao cede a vez para
-    # as outras apps em vez de competir de igual para igual.
+    # sem -threads o libx264 usa todos os nucleos, entao um job ocupa a maquina
+    # (medido: 555% de CPU num host de 8 nucleos, com duas stacks Supabase ao lado).
+    #
+    # Peso relativo, nao teto: com a maquina ociosa o worker usa todos os nucleos
+    # normalmente e o video fica pronto na velocidade maxima. Abaixo do padrao
+    # (1024), ele so cede a vez quando ha disputa real — preservando a UI, a API
+    # e as outras apps sem custo nenhum em horario vazio.
+    #
+    # Um teto rigido (`cpus:`) foi avaliado e descartado de proposito: cortaria a
+    # velocidade do encode 24h por dia para resolver contencao que so acontece as
+    # vezes. Parametros de encoding (preset fast, CRF 20/22/26) intactos.
     cpu_shares: 512
     restart: unless-stopped
 
