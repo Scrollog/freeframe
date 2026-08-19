@@ -8,6 +8,7 @@ Verifies:
 - _run() raises RuntimeError with stderr on non-zero exit
 """
 import asyncio
+import io
 import json
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,40 @@ import pytest
 
 from packages.transcoder.ffmpeg_transcoder import FFmpegTranscoder
 from packages.transcoder.base import TranscodeJob
+
+
+class _FakeProc:
+    """Stands in for the ffmpeg process behind subprocess.Popen.
+
+    The main encode moved from subprocess.run to Popen when progress streaming
+    was added, so it needs a line-iterable stdout that can be closed. Both
+    ffprobe calls and the thumbnail pass still go through subprocess.run.
+    """
+
+    def __init__(self, lines=(), returncode=0):
+        self.stdout = io.StringIO(chr(10).join(lines))
+        self._returncode = returncode
+
+    def wait(self):
+        return self._returncode
+
+    def kill(self):
+        pass
+
+
+_popen_holder = {}
+
+
+@pytest.fixture(autouse=True)
+def _patch_popen():
+    """Every transcode test drives the main encode, which now uses Popen."""
+    with patch("subprocess.Popen") as mock_popen:
+        mock_popen.side_effect = lambda *a, **k: _FakeProc(
+            ["out_time=00:00:03.000000", "progress=continue", "progress=end"]
+        )
+        _popen_holder["mock"] = mock_popen
+        yield mock_popen
+        _popen_holder.pop("mock", None)
 
 
 def _make_job(qualities: list[str] | None = None) -> TranscodeJob:
@@ -51,10 +86,11 @@ def _mock_probe_side_effect(width: int, height: int):
     return mock_run_side_effect
 
 
-def _get_ffmpeg_cmd(mock_run):
+def _get_ffmpeg_cmd():
     """Pull the main ffmpeg transcode command (the one with -filter_complex)
-    out of a mocked subprocess.run's call list."""
-    ffmpeg_calls = [c for c in mock_run.call_args_list
+    out of the mocked subprocess.Popen call list."""
+    mock_popen = _popen_holder["mock"]
+    ffmpeg_calls = [c for c in mock_popen.call_args_list
                     if any("filter_complex" in str(a) for a in c[0][0])]
     assert len(ffmpeg_calls) > 0, "no -filter_complex call was made"
     return ffmpeg_calls[0][0][0]
@@ -132,11 +168,7 @@ def test_transcode_with_audio_includes_audio_map():
                 job = _make_job(["720p"])
                 asyncio.run(transcoder.transcode(job))
 
-        # Find the main ffmpeg command call (the one with -filter_complex)
-        ffmpeg_calls = [c for c in mock_run.call_args_list
-                        if any("filter_complex" in str(a) for a in c[0][0])]
-        assert len(ffmpeg_calls) > 0
-        ffmpeg_cmd = ffmpeg_calls[0][0][0]
+        ffmpeg_cmd = _get_ffmpeg_cmd()
 
         # Assert audio map is present
         assert "-map" in ffmpeg_cmd
@@ -191,11 +223,7 @@ def test_transcode_without_audio_excludes_audio_map():
                 job = _make_job(["720p"])
                 asyncio.run(transcoder.transcode(job))
 
-        # Find the main ffmpeg command call
-        ffmpeg_calls = [c for c in mock_run.call_args_list
-                        if any("filter_complex" in str(a) for a in c[0][0])]
-        assert len(ffmpeg_calls) > 0
-        ffmpeg_cmd = ffmpeg_calls[0][0][0]
+        ffmpeg_cmd = _get_ffmpeg_cmd()
 
         # Assert audio map is NOT present
         maps = [ffmpeg_cmd[i+1] for i, arg in enumerate(ffmpeg_cmd) if arg == "-map"]
@@ -225,7 +253,7 @@ def test_source_smaller_than_ladder_drops_upscaled_renditions():
                 result = asyncio.run(transcoder.transcode(job))
 
         assert result.success is True
-        ffmpeg_cmd = _get_ffmpeg_cmd(mock_run)
+        ffmpeg_cmd = _get_ffmpeg_cmd()
 
         filter_complex = ffmpeg_cmd[ffmpeg_cmd.index("-filter_complex") + 1]
         assert "1920:1080" not in filter_complex, "1080p rendition should have been dropped"
@@ -258,7 +286,7 @@ def test_source_smaller_than_all_requested_keeps_smallest():
                 result = asyncio.run(transcoder.transcode(job))
 
         assert result.success is True
-        ffmpeg_cmd = _get_ffmpeg_cmd(mock_run)
+        ffmpeg_cmd = _get_ffmpeg_cmd()
         filter_complex = ffmpeg_cmd[ffmpeg_cmd.index("-filter_complex") + 1]
 
         assert "1920:1080" not in filter_complex
@@ -284,7 +312,7 @@ def test_source_larger_than_ladder_keeps_full_ladder():
                 result = asyncio.run(transcoder.transcode(job))
 
         assert result.success is True
-        ffmpeg_cmd = _get_ffmpeg_cmd(mock_run)
+        ffmpeg_cmd = _get_ffmpeg_cmd()
         filter_complex = ffmpeg_cmd[ffmpeg_cmd.index("-filter_complex") + 1]
 
         assert "1920:1080" in filter_complex
@@ -321,6 +349,7 @@ def test_transcode_returns_probe_metadata():
         return ""
 
     with patch.object(FFmpegTranscoder, "_run", side_effect=fake_run), \
+         patch.object(FFmpegTranscoder, "_run_with_progress"), \
          patch.object(FFmpegTranscoder, "_get_presigned_url", return_value="http://in"):
         result = asyncio.run(t.transcode(_make_job()))
 

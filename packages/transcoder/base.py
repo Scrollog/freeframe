@@ -1,6 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
+
+# Called with overall completion (0.0-100.0) while a transcode runs. Kept as a
+# plain callable rather than a TranscodeJob field: the transcoder package has no
+# business knowing about Redis or project ids, so the caller supplies the sink.
+ProgressCallback = Callable[[float], None]
 
 @dataclass
 class TranscodeJob:
@@ -31,7 +36,11 @@ class VideoMetadata:
 
 class BaseTranscoder(ABC):
     @abstractmethod
-    async def transcode(self, job: TranscodeJob) -> TranscodeResult:
+    async def transcode(
+        self,
+        job: TranscodeJob,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> TranscodeResult:
         pass
 
     @abstractmethod

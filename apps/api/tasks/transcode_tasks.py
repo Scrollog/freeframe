@@ -97,7 +97,20 @@ def _process_video(db, asset, version, media_file, s3, output_prefix):
         output_s3_prefix=output_prefix,
         qualities=["1080p", "720p", "360p"],
     )
-    result = _run_async(transcoder.transcode(job))
+
+    project_id, asset_id = str(asset.project_id), str(asset.id)
+
+    def _on_progress(percent: float):
+        # The web client already listens for this event (use-sse.ts) and renders
+        # `Processing {percent}%`; until now nothing ever emitted it, so the bar
+        # sat at "Processing..." for the whole job.
+        _publish_event(project_id, "transcode_progress", {
+            "asset_id": asset_id,
+            "version_id": str(version.id),
+            "percent": round(percent, 1),
+        })
+
+    result = _run_async(transcoder.transcode(job, progress_callback=_on_progress))
     if not result.success:
         raise RuntimeError(f"Transcode failed: {result.error}")
 

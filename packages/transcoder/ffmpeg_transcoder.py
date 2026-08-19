@@ -1,14 +1,31 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+import time
+from collections import deque
 from pathlib import Path
 from typing import Optional
 import boto3
 from botocore.config import Config
-from .base import BaseTranscoder, TranscodeJob, TranscodeResult, VideoMetadata
+from .base import (
+    BaseTranscoder,
+    ProgressCallback,
+    TranscodeJob,
+    TranscodeResult,
+    VideoMetadata,
+)
+
+# `-progress` writes `out_time=HH:MM:SS.microseconds`. Parsed in preference to
+# `out_time_ms`, which ffmpeg reports in MICROseconds despite the name — a
+# long-standing quirk that silently yields a 1000x-off percentage.
+_OUT_TIME_RE = re.compile(r"^out_time=(\d+):(\d\d):(\d\d(?:\.\d+)?)$")
+
+# Don't flood Redis/SSE: a 22-minute video emits progress twice a second.
+PROGRESS_MIN_INTERVAL_S = 3.0
 
 
 def parse_probe_metadata(data: dict) -> Optional[VideoMetadata]:
@@ -95,6 +112,77 @@ class FFmpegTranscoder(BaseTranscoder):
             )
         return result.stdout
 
+    @staticmethod
+    def _run_with_progress(
+        cmd: list[str],
+        duration_seconds: float,
+        on_progress: Optional[ProgressCallback],
+        timeout: int | None = None,
+        label: str = "ffmpeg",
+    ) -> None:
+        """Run ffmpeg, reporting completion percentage as it encodes.
+
+        Deliberately separate from `_run` instead of replacing it: `_run` also
+        drives both ffprobe calls and the thumbnail pass, and a parsing mistake
+        here should not be able to break those.
+
+        stderr is merged into stdout rather than read from a second pipe. Two
+        pipes need a draining thread or ffmpeg blocks once a buffer fills; one
+        stream cannot deadlock. Log lines simply don't match the progress regex,
+        and the last of them are kept for the error message.
+        """
+        cmd = [*cmd, "-progress", "pipe:1", "-nostats"]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            bufsize=1,
+        )
+        tail = deque(maxlen=40)  # only for the failure message
+        deadline = (time.monotonic() + timeout) if timeout else None
+        last_emit = 0.0
+        last_percent = -1.0
+
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    tail.append(line)
+
+                if deadline and time.monotonic() > deadline:
+                    proc.kill()
+                    raise RuntimeError(f"{label} exceeded timeout of {timeout}s")
+
+                if not (on_progress and duration_seconds > 0):
+                    continue
+                match = _OUT_TIME_RE.match(line)
+                if not match:
+                    continue
+                hours, minutes, seconds = match.groups()
+                encoded = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                percent = max(0.0, min(99.0, encoded / duration_seconds * 100))
+
+                now = time.monotonic()
+                if percent - last_percent < 1.0 or now - last_emit < PROGRESS_MIN_INTERVAL_S:
+                    continue
+                last_percent, last_emit = percent, now
+                try:
+                    on_progress(percent)
+                except Exception:
+                    pass  # a broken progress sink must never fail the transcode
+        finally:
+            if proc.stdout:
+                proc.stdout.close()
+
+        returncode = proc.wait()
+        if returncode != 0:
+            output = "\n".join(tail).strip()
+            raise RuntimeError(
+                f"{label} exited {returncode}: {output or 'no output captured'}"
+            )
+
     async def get_video_metadata(self, s3_key: str) -> VideoMetadata:
         """Get video metadata using streaming (no full download)."""
         input_url = self._get_presigned_url(s3_key)
@@ -130,7 +218,11 @@ class FFmpegTranscoder(BaseTranscoder):
         # Simplified waveform: just return peak data (full waveform extraction is complex)
         return {"samples": [], "peak": 1.0, "source": s3_key}
 
-    async def transcode(self, job: TranscodeJob) -> TranscodeResult:
+    async def transcode(
+        self,
+        job: TranscodeJob,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> TranscodeResult:
         """
         Transcode video using streaming input from S3.
         FFmpeg reads directly from presigned URL - no full download needed.
@@ -224,7 +316,15 @@ class FFmpegTranscoder(BaseTranscoder):
                 (hls_dir / q).mkdir(exist_ok=True)
 
             # Timeout scales with expected duration - 4 hours for very large files
-            self._run(ffmpeg_cmd, timeout=14400, label="ffmpeg")
+            # meta is None when ffprobe found no video stream; duration 0 disables
+            # the percentage (the encode still runs, just without progress).
+            self._run_with_progress(
+                ffmpeg_cmd,
+                duration_seconds=(meta.duration_seconds if meta else 0.0),
+                on_progress=progress_callback,
+                timeout=14400,
+                label="ffmpeg",
+            )
 
             # 4. Upload HLS files to S3
             uploaded_keys = []
