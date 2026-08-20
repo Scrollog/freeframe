@@ -58,8 +58,9 @@ def test_reap_logic_soft_deletes_and_deletes_s3(mock_db, monkeypatch):
 
     version = MagicMock(deleted_at=None)
     media = MagicMock(s3_key_raw="raw/x", s3_key_processed="processed/x", s3_key_thumbnail="thumb/x")
-    # versions query returns [version]; media-files query (inside the loop) returns [media]
-    mock_db.all.side_effect = [[version], [media]]
+    # stuck-processing query returns []; versions query returns [version];
+    # media-files query (inside the loop) returns [media]
+    mock_db.all.side_effect = [[], [version], [media]]
 
     n = ct._reap_stale_uploads(mock_db)
 
@@ -102,6 +103,27 @@ def test_reap_selects_only_old_uploading_and_failed(real_db, monkeypatch):
     assert old_failed.deleted_at is not None
     assert recent_uploading.deleted_at is None
     assert ready.deleted_at is None
+
+
+def test_reap_marks_abandoned_processing_as_failed(real_db, monkeypatch):
+    """Real DB: a version stranded in `processing` (worker killed mid-transcode, which
+    every redeploy does) is flipped to `failed` so the UI stops showing a spinner."""
+    monkeypatch.setattr(ct, "list_stale_multipart_uploads", lambda cutoff: [])
+    monkeypatch.setattr(ct, "delete_object", lambda k: None)
+    monkeypatch.setattr(ct, "delete_prefix", lambda k: None)
+
+    stuck = _seed_version(real_db, ProcessingStatus.processing, 48)
+    recent = _seed_version(real_db, ProcessingStatus.processing, 1)
+
+    ct._reap_stale_uploads(real_db)
+
+    assert stuck.processing_status == ProcessingStatus.failed
+    # Not reclaimed in the same pass: last_activity_at was refreshed, so the raw
+    # upload survives long enough for the owner to see the failure and retry.
+    assert stuck.deleted_at is None
+    # A transcode still legitimately running is untouched.
+    assert recent.processing_status == ProcessingStatus.processing
+    assert recent.deleted_at is None
 
 
 def test_reaper_disabled_when_timeout_zero(mock_db, monkeypatch):

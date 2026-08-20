@@ -231,6 +231,34 @@ def _reap_stale_uploads(db) -> int:
         return 0
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
+    # 0. Rescue versions abandoned mid-transcode.
+    #
+    # A version enters `processing` when the Celery task picks it up and only
+    # leaves it when the task writes `ready` or `failed`. If the worker dies in
+    # between -- which every redeploy does, since the container is recreated and
+    # its ffmpeg killed -- nothing ever updates the row. It sits in `processing`
+    # forever: a permanent spinner in the UI, holding its raw object in the
+    # bucket, invisible to the sweeps below because those only look at
+    # `uploading` / `failed`. Three such rows were found in production, together
+    # holding 6.6 GB.
+    #
+    # Marked `failed` rather than soft-deleted: the raw upload is intact, so the
+    # owner can retry instead of losing the file. `last_activity_at` is refreshed
+    # so the reclamation window below starts now -- otherwise a row that has been
+    # stuck for days would be flipped and reclaimed within the same hour, taking
+    # the raw file with it before anyone saw the failure.
+    stuck = db.query(AssetVersion).filter(
+        AssetVersion.processing_status == ProcessingStatus.processing,
+        AssetVersion.deleted_at.is_(None),
+        func.coalesce(AssetVersion.last_activity_at, AssetVersion.created_at) < cutoff,
+    ).all()
+    for v in stuck:
+        v.processing_status = ProcessingStatus.failed
+        v.last_activity_at = datetime.now(timezone.utc)
+    if stuck:
+        db.flush()
+        log.info("reaper: %d version(s) abandoned mid-transcode marked failed", len(stuck))
+
     # 1. Reclaim stuck `uploading` / `failed` versions past the cutoff.
     # Age by last activity, falling back to creation for rows that predate it being
     # recorded. A large upload on a slow line can legitimately outlive the window
