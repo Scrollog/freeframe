@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import uuid
 from datetime import datetime, timezone
 from ..database import get_db
@@ -37,6 +37,34 @@ def _require_project_owner(db: Session, project_id: uuid.UUID, user: User) -> Pr
     if not member or member.role != ProjectRole.owner:
         raise HTTPException(status_code=403, detail="Project owner access required")
     return member
+
+def _listable_asset_filter(db: Session):
+    """Restrict a count to the assets the asset list actually shows.
+
+    ``GET /projects/{id}/assets`` hides assets whose only versions failed or are
+    still uploading, so counting every non-deleted asset made project cards
+    claim more assets than the project appears to hold — an abandoned upload
+    stayed in the tally forever with nothing on screen to explain it. Keep the
+    two in step by reusing the same rule here.
+    """
+    usable = (
+        db.query(AssetVersion.asset_id)
+        .filter(
+            AssetVersion.deleted_at.is_(None),
+            AssetVersion.processing_status.notin_(
+                [ProcessingStatus.failed, ProcessingStatus.uploading]
+            ),
+        )
+        .distinct()
+    )
+    with_any_version = (
+        db.query(AssetVersion.asset_id)
+        .filter(AssetVersion.deleted_at.is_(None))
+        .distinct()
+    )
+    # Assets with no version yet were just created and do belong in the count.
+    return or_(Asset.id.in_(usable), Asset.id.notin_(with_any_version))
+
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -82,7 +110,11 @@ def list_projects(db: Session = Depends(get_db), current_user: User = Depends(ge
     # Batch: asset counts per project
     asset_counts = dict(
         db.query(Asset.project_id, func.count(Asset.id))
-        .filter(Asset.project_id.in_(all_project_ids), Asset.deleted_at.is_(None))
+        .filter(
+            Asset.project_id.in_(all_project_ids),
+            Asset.deleted_at.is_(None),
+            _listable_asset_filter(db),
+        )
         .group_by(Asset.project_id)
         .all()
     )
@@ -139,7 +171,9 @@ def get_project(project_id: uuid.UUID, db: Session = Depends(get_db), current_us
         resp.role = member.role
     # Calculate storage, asset count, member count
     resp.asset_count = db.query(func.count(Asset.id)).filter(
-        Asset.project_id == project_id, Asset.deleted_at.is_(None),
+        Asset.project_id == project_id,
+        Asset.deleted_at.is_(None),
+        _listable_asset_filter(db),
     ).scalar() or 0
     resp.storage_bytes = project_storage_used_bytes(db, project_id)
     resp.member_count = db.query(func.count(ProjectMember.id)).filter(
