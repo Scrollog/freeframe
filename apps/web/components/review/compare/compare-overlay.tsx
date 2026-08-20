@@ -20,6 +20,7 @@ import { VideoFrameConstraint } from '@/components/review/video-player'
 import { ImageFrameConstraint } from '@/components/review/image-frame-constraint'
 import { CommentPanel } from '@/components/review/comment-panel'
 import { CommentInput } from '@/components/review/comment-input'
+import { buildCommentNumbers } from '@/lib/comment-numbers'
 import type { AssetResponse, AssetVersion } from '@/types'
 
 interface CompareOverlayProps {
@@ -233,17 +234,20 @@ export function CompareOverlay({ asset, versions, rightVersion, onClose, canComm
     if (b) b.muted = audioSide !== 'b'
   })
 
+  const commentNumbersA = React.useMemo(() => buildCommentNumbers(sideA.comments), [sideA.comments])
+  const commentNumbersB = React.useMemo(() => buildCommentNumbers(sideB.comments), [sideB.comments])
+
   const markersA: ScrubberMarker[] = sideA.comments
     .filter((c) => c.timecode_start != null && !c.resolved)
     .map((c) => ({
-      id: c.id, tc: c.timecode_start as number,
+      id: c.id, commentNumber: commentNumbersA.get(c.id), tc: c.timecode_start as number,
       authorName: c.author?.name ?? c.guest_author?.name ?? 'Unknown',
       body: c.body, hasAnnotation: Boolean(c.annotation),
     }))
   const markersB: ScrubberMarker[] = sideB.comments
     .filter((c) => c.timecode_start != null && !c.resolved)
     .map((c) => ({
-      id: c.id, tc: c.timecode_start as number,
+      id: c.id, commentNumber: commentNumbersB.get(c.id), tc: c.timecode_start as number,
       authorName: c.author?.name ?? c.guest_author?.name ?? 'Unknown',
       body: c.body, hasAnnotation: Boolean(c.annotation),
     }))

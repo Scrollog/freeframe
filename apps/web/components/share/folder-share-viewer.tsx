@@ -17,8 +17,11 @@ import {
   PanelRightClose,
   PanelRightOpen,
   ArrowLeft,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { buildCommentNumbers } from '@/lib/comment-numbers'
 import { useReview, type CreateCommentPayload } from '@/components/review/review-provider'
 import { useReviewStore } from '@/stores/review-store'
 import type {
@@ -27,7 +30,10 @@ import type {
   FolderShareAssetsResponse,
   FolderShareAssetItem,
   FolderShareSubfolder,
+  ProjectBranding,
 } from '@/types'
+
+export type ShareBranding = ProjectBranding & { logo_url?: string | null }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -47,12 +53,7 @@ interface FolderShareViewerProps {
   allowDownload: boolean
   showVersions: boolean
   appearance: ShareLinkAppearance
-  branding: {
-    logo_url?: string
-    primary_color?: string
-    custom_title?: string
-    custom_footer?: string
-  } | null
+  branding: ShareBranding | null
   onAssetClick?: (assetId: string) => void
 }
 
@@ -487,6 +488,8 @@ interface ShareCommentListProps {
 }
 
 function ShareCommentList({ comments, loading, canComment, onReply }: ShareCommentListProps) {
+  const commentNumbers = React.useMemo(() => buildCommentNumbers(comments), [comments])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -507,7 +510,7 @@ function ShareCommentList({ comments, loading, canComment, onReply }: ShareComme
 
   return (
     <div className="px-4 py-3 space-y-1">
-      {comments.map((comment, i) => {
+      {comments.map((comment) => {
         const name = comment.author?.name || comment.guest_author?.name || comment.guest_name || comment.author_name || 'User'
         const color = getAvatarColor(name)
         return (
@@ -521,7 +524,7 @@ function ShareCommentList({ comments, loading, canComment, onReply }: ShareComme
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-text-primary">{name}</span>
                   <span className="text-2xs text-text-tertiary">{formatShortDate(comment.created_at)}</span>
-                  <span className="ml-auto text-2xs text-text-tertiary">#{i + 1}</span>
+                  <span className="ml-auto text-2xs text-text-tertiary">#{commentNumbers.get(comment.id)}</span>
                 </div>
                 <p className="text-sm text-text-secondary mt-1 leading-relaxed">{comment.body}</p>
                 {comment.timecode_start != null && (
@@ -728,10 +731,10 @@ function AssetViewer({ token, shareSession, asset, permission, allowDownload, sh
 }
 
 /** Lazy-imported review components to avoid circular deps */
-function ShareReviewScreen({
+export function ShareReviewScreen({
   token, shareSession, assetId, assetName, permission, allowDownload, showVersions, onBack,
 }: {
-  token: string; shareSession?: string | null; assetId: string; assetName: string; permission: SharePermission; allowDownload: boolean; showVersions: boolean; onBack: () => void
+  token: string; shareSession?: string | null; assetId: string; assetName: string; permission: SharePermission; allowDownload: boolean; showVersions: boolean; onBack?: () => void
 }) {
   const [ReviewProvider, setProvider] = React.useState<any>(null)
   const [VideoPlayer, setVideoPlayer] = React.useState<any>(null)
@@ -858,9 +861,11 @@ function ShareReviewInner({
       {/* Top bar — same style as project review */}
       <div className="flex items-center justify-between border-b border-border px-3 h-12 bg-bg-secondary shrink-0">
         <div className="flex items-center gap-1 min-w-0 flex-1">
-          <button onClick={onBack} className="flex items-center justify-center h-7 w-7 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0">
-            <ArrowLeft className="h-4 w-4" />
-          </button>
+          {onBack && (
+            <button onClick={onBack} className="flex items-center justify-center h-7 w-7 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
           <span className="text-[13px] font-medium text-text-primary truncate">{assetName}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -942,6 +947,9 @@ function ShareReviewInner({
                   onReply={() => {}}
                   onSubmitReply={async () => {}}
                 />
+                {permission === 'approve' && (
+                  <ShareApprovalActions token={token} assetId={asset.id} shareSession={shareSession} />
+                )}
                 {canComment && CommentInput && (
                   <CommentInput
                     assetId={asset.id}
@@ -972,6 +980,46 @@ function ShareReviewInner({
           onCancel={() => { setShowGuestPrompt(false); pendingCommentRef.current = null }}
         />
       )}
+    </div>
+  )
+}
+
+function ShareApprovalActions({ token, assetId, shareSession }: { token: string; assetId: string; shareSession?: string | null }) {
+  const [status, setStatus] = React.useState<'idle' | 'approved' | 'rejected'>('idle')
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const decide = async (decision: 'approved' | 'rejected') => {
+    setLoading(true)
+    setError(null)
+    try {
+      const session = shareSession ? `?share_session=${encodeURIComponent(shareSession)}` : ''
+      const response = await fetch(`${API_URL}/share/${token}/${decision === 'approved' ? 'approve' : 'reject'}${session}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asset_id: assetId }),
+      })
+      if (!response.ok) throw new Error('Failed to submit decision')
+      setStatus(decision)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Failed to submit decision')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (status === 'approved') {
+    return <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/10 px-4 py-2"><CheckCircle2 className="h-4 w-4 text-green-400" /><span className="text-sm font-medium text-green-400">Approved</span></div>
+  }
+  if (status === 'rejected') {
+    return <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2"><XCircle className="h-4 w-4 text-red-400" /><span className="text-sm font-medium text-red-400">Rejected</span></div>
+  }
+
+  return (
+    <div className="flex gap-2 px-3 pb-2">
+      {error && <span className="self-center text-xs text-red-400">{error}</span>}
+      <button onClick={() => decide('rejected')} disabled={loading} className="flex-1 rounded-md border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50">Reject</button>
+      <button onClick={() => decide('approved')} disabled={loading} className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-text-inverse hover:bg-accent-hover disabled:opacity-50">Approve</button>
     </div>
   )
 }

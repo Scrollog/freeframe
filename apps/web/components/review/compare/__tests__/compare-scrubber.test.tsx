@@ -6,7 +6,7 @@ const base = {
   t: 10, total: 63, isPlaying: false, fps: 25,
   onToggle: vi.fn(), onSeek: vi.fn(), onMarkerClick: vi.fn(), onOffsetChange: vi.fn(),
   labelA: 'v1', labelB: 'v2', onResetOffsets: vi.fn(),
-  markersA: [{ id: 'c1', tc: 10, authorName: 'Maya Chen', body: 'Looks great, nice color grade here', hasAnnotation: false }],
+  markersA: [{ id: 'c1', commentNumber: 7, tc: 10, authorName: 'Maya Chen', body: 'Looks great, nice color grade here', hasAnnotation: false }],
   markersB: [{ id: 'c2', tc: 4, authorName: 'Sam', body: 'Audio is a bit low', hasAnnotation: false }],
   timingA: { offset: 2, duration: 60 }, timingB: { offset: 0, duration: 61 },
 }
@@ -82,6 +82,7 @@ describe('CompareScrubber', () => {
 
     fireEvent.mouseEnter(a)
     expect(screen.getByText('Maya Chen')).toBeInTheDocument()
+    expect(screen.getByText('#7')).toBeInTheDocument()
     expect(screen.getByText(/Looks great/)).toBeInTheDocument()
 
     fireEvent.mouseLeave(a)

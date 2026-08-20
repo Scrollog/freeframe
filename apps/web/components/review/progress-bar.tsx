@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Hls from 'hls.js'
 import { cn, formatTimecode } from '@/lib/utils'
+import { buildCommentNumbers } from '@/lib/comment-numbers'
 import { useReviewStore } from '@/stores/review-store'
 import type { Comment } from '@/types'
 
@@ -148,7 +149,8 @@ function useFramePreview(streamUrl: string | null | undefined) {
 
 interface CommentMarkerProps {
   comment: Comment
-  index: number
+  /** Canonical number shared with the side panel — NOT the marker's array position. */
+  commentNumber?: number
   leftPercent: number
   authorName: string
   initials: string
@@ -162,7 +164,7 @@ interface CommentMarkerProps {
 
 function CommentMarker({
   comment,
-  index,
+  commentNumber,
   leftPercent,
   authorName,
   initials,
@@ -246,6 +248,11 @@ function CommentMarker({
               >
                 {initials}
               </div>
+              {commentNumber !== undefined && (
+                <span className="text-[10px] font-semibold text-text-tertiary shrink-0">
+                  #{commentNumber}
+                </span>
+              )}
               <span className="text-xs font-medium text-white truncate">{authorName}</span>
               {comment.timecode_start !== null && (
                 <span className="ml-auto text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
@@ -364,6 +371,9 @@ export function ProgressBar({
   }, [isDragging, getTimeFromEvent, onSeek, clearPreview])
 
   // Separate timecoded comments
+  // Same helper the side panel uses, so a marker's #N always matches its card's.
+  const commentNumbers = React.useMemo(() => buildCommentNumbers(comments), [comments])
+
   const pointMarkers = comments.filter(
     (c) => c.timecode_start !== null && c.timecode_end === null && !c.resolved,
   )
@@ -426,7 +436,7 @@ export function ProgressBar({
       {/* Comment markers row — below the progress bar */}
       {pointMarkers.length > 0 && (
         <div className="relative w-full h-6 mt-0.5">
-          {pointMarkers.map((c, idx) => {
+          {pointMarkers.map((c) => {
             if (c.timecode_start === null) return null
             const left = timeToPercent(c.timecode_start)
             const authorName = c.author?.name ?? c.guest_author?.name ?? 'Unknown'
@@ -438,7 +448,7 @@ export function ProgressBar({
               <CommentMarker
                 key={c.id}
                 comment={c}
-                index={idx}
+                commentNumber={commentNumbers.get(c.id)}
                 leftPercent={left}
                 authorName={authorName}
                 initials={initials}

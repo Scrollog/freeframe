@@ -29,6 +29,7 @@ import {
   Download,
 } from "lucide-react";
 import { cn, formatTime, formatRelativeTime } from "@/lib/utils";
+import { buildCommentNumbers } from "@/lib/comment-numbers";
 import { useReviewStore } from "@/stores/review-store";
 import type { CommentWithReplies } from "@/hooks/use-comments";
 import {
@@ -817,6 +818,13 @@ export function CommentPanel({
     [comments],
   );
 
+  // Canonical, filter-independent numbering. Derived from `comments` (not from
+  // `sorted`) on purpose: sorting or searching must not renumber anything.
+  const commentNumbers = React.useMemo(
+    () => buildCommentNumbers(comments),
+    [comments],
+  );
+
   const publicCount = React.useMemo(
     () => topLevel.filter((c) => c.visibility !== "internal").length,
     [topLevel],
@@ -1288,11 +1296,11 @@ export function CommentPanel({
         )}
 
         {!isLoading &&
-          sorted.map((comment, index) => (
+          sorted.map((comment) => (
             <div key={comment.id} className="px-3 pt-2 first:pt-3">
               <CommentItem
                 comment={comment}
-                commentNumber={index + 1}
+                commentNumber={commentNumbers.get(comment.id)}
                 currentUserId={currentUserId}
                 replyingTo={replyingTo}
                 isFocused={focusedCommentId === comment.id}
