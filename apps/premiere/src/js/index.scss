@@ -12,7 +12,7 @@ body {
   font-size: 12px;
   line-height: 1.45;
   color: $text-primary;
-  background-color: $bg-page;
+  background-color: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -30,7 +30,11 @@ button {
 // Matched by exclusion rather than by listing types: an <input> with no type
 // attribute defaults to text but never matches `input[type="text"]`, and those
 // fell back to the browser's white default.
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+//
+// The exclusions live in `:where()` so they add no specificity — chained
+// `:not()` scored higher than the component classes meant to override this,
+// which left borders showing inside the share link box and elsewhere.
+input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"])),
 select,
 textarea {
   background-color: $bg-primary;

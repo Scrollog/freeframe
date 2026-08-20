@@ -139,6 +139,7 @@ const Shell = () => {
               onBack={() => setProject(null)}
               onOpenAsset={openAsset}
               onExport={() => setExporting(true)}
+              link={link}
             />
           ) : (
             <ProjectGrid
@@ -154,6 +155,7 @@ const Shell = () => {
             link={link}
             onLinkChange={onLinkChange}
             onBack={() => setTab("browse")}
+            onExport={() => setExporting(true)}
           />
         )}
         {tab === "sequences" && (

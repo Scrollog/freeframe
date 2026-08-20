@@ -145,28 +145,25 @@ export const Login = () => {
         </button>
       </div>
 
-      <button
-        type="button"
-        className="primary with-icon"
-        onClick={onBrowserLogin}
-        disabled={waiting}
-      >
-        <IconExternal width={14} height={14} />
-        {waiting ? "Waiting for the browser…" : "Sign in with browser"}
-      </button>
-
-      {waiting && (
-        <p className="muted small">
-          A tab opened in your browser. Sign in there if asked — this panel
-          connects itself.{" "}
-          <button
-            type="button"
-            className="text-btn"
-            onClick={() => handleRef.current?.cancel()}
-          >
+      {waiting ? (
+        <>
+          <button type="button" className="primary with-icon" disabled>
+            <span className="btn-spinner" />
+            Waiting for the browser…
+          </button>
+          <p className="muted small">
+            A tab opened in your browser. Sign in there if asked — this panel
+            connects itself.
+          </p>
+          <button type="button" onClick={() => handleRef.current?.cancel()}>
             Cancel
           </button>
-        </p>
+        </>
+      ) : (
+        <button type="button" className="primary with-icon" onClick={onBrowserLogin}>
+          <IconExternal width={14} height={14} />
+          Sign in with browser
+        </button>
       )}
 
       <button

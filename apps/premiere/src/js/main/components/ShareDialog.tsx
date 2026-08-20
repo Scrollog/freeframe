@@ -248,7 +248,6 @@ export const ShareDialog = ({
           <button className="icon-btn" onClick={copy} disabled={!url} title="Copy link">
             <IconLink width={15} height={15} />
           </button>
-          <span className="link-divider" />
           <Dropdown
             align="right"
             triggerClass="visibility-trigger"

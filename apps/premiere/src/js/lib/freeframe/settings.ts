@@ -38,8 +38,12 @@ export interface Settings {
   annotationsVisible: boolean;
   /** Where renders happen: Media Encoder, or inside Premiere itself. */
   renderMode: "ame" | "premiere";
+  /** Export range: 0 = entire sequence, 1 = in/out points. */
+  exportRange: number;
   /** Card size chosen under Appearance, in the browse grids. */
   cardSize: "small" | "medium" | "large";
+  /** Emoji the picker offers first, most recent leading. */
+  recentEmoji: string[];
   /** Comment ids already opened in the panel — the API has no read state. */
   readComments: string[];
   /** Assets this machine has exported, newest first. */
@@ -68,7 +72,9 @@ export const defaultSettings: Settings = {
   sideWidth: 320,
   annotationsVisible: true,
   renderMode: "ame",
+  exportRange: 0,
   cardSize: "medium",
+  recentEmoji: [],
   readComments: [],
   exportHistory: [],
   links: {},

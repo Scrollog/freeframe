@@ -50,6 +50,12 @@ export interface ApiOptions {
 }
 
 export class FreeFrameApi {
+  /**
+   * Browse responses carry presigned thumbnail URLs. Keep them for this panel
+   * session so changing tabs does not mint different URLs and force Chromium
+   * to download the same image again.
+   */
+  private browseCache = new Map<string, { expiresAt: number; value: unknown }>();
   baseUrl: string;
   accessToken: string;
   refreshToken: string;
@@ -98,6 +104,21 @@ export class FreeFrameApi {
     return this.refreshing;
   }
 
+  private cachedBrowse<T>(path: string, refresh = false): Promise<T> {
+    const cached = this.browseCache.get(path);
+    if (!refresh && cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve(cached.value as T);
+    }
+
+    return this.request<T>(path).then((value) => {
+      this.browseCache.set(path, {
+        value,
+        expiresAt: Date.now() + 2 * 60 * 1000,
+      });
+      return value;
+    });
+  }
+
   async request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
     if (!this.baseUrl) throw new ApiError(0, "No server configured");
     const headers: Record<string, string> = {
@@ -119,6 +140,9 @@ export class FreeFrameApi {
       return this.request<T>(path, init, false);
     }
     if (!res.ok) throw new ApiError(res.status, await detailOf(res));
+    // Any successful mutation can change a project card or asset thumbnail.
+    // Clear the short-lived browse cache rather than risking stale media.
+    if (init.method && init.method !== "GET") this.browseCache.clear();
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
@@ -141,13 +165,14 @@ export class FreeFrameApi {
   logout() {
     this.accessToken = "";
     this.refreshToken = "";
+    this.browseCache.clear();
     this.onTokens?.({ accessToken: "", refreshToken: "" });
   }
 
   // -- browsing ---------------------------------------------------------------
 
-  projects() {
-    return this.request<Project[]>("/projects");
+  projects(refresh = false) {
+    return this.cachedBrowse<Project[]>("/projects", refresh);
   }
 
   createProject(name: string) {
@@ -162,13 +187,13 @@ export class FreeFrameApi {
     return this.request<void>(`/projects/${projectId}`, { method: "DELETE" });
   }
 
-  folderTree(projectId: string) {
-    return this.request<FolderNode[]>(`/projects/${projectId}/folder-tree`);
+  folderTree(projectId: string, refresh = false) {
+    return this.cachedBrowse<FolderNode[]>(`/projects/${projectId}/folder-tree`, refresh);
   }
 
-  assets(projectId: string, folderId?: string | null) {
+  assets(projectId: string, folderId?: string | null, refresh = false) {
     const query = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : "";
-    return this.request<Asset[]>(`/projects/${projectId}/assets${query}`);
+    return this.cachedBrowse<Asset[]>(`/projects/${projectId}/assets${query}`, refresh);
   }
 
   asset(assetId: string) {
@@ -248,7 +273,13 @@ export class FreeFrameApi {
 
   createComment(
     assetId: string,
-    body: { version_id: string; body: string; timecode_start?: number | null }
+    body: {
+      version_id: string;
+      body: string;
+      timecode_start?: number | null;
+      /** "public" is visible to everyone on the asset; "internal" to the team. */
+      visibility?: "public" | "internal";
+    }
   ) {
     return this.request<Comment>(`/assets/${assetId}/comments`, {
       method: "POST",

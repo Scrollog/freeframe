@@ -7,6 +7,7 @@ import { Dropdown, MenuAction } from "./Dropdown";
 import { AppearanceMenu, SortedByMenu, cardMinWidth } from "./BrowseControls";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
 import { useProjectEvents } from "../../lib/freeframe/events";
+import type { AssetLink } from "../../lib/freeframe/host";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ScrubThumb } from "./ScrubThumb";
@@ -20,6 +21,7 @@ import {
   IconRename,
   IconExternal,
   IconFilm,
+  IconMarker,
   IconMore,
   IconTrash,
   IconFolder,
@@ -64,11 +66,14 @@ export const AssetGrid = ({
   onBack,
   onOpenAsset,
   onExport,
+  link,
 }: {
   project: Project;
   onBack: () => void;
   onOpenAsset: (asset: Asset) => void;
   onExport: () => void;
+  /** The asset bound to the sequence open in Premiere, if it is in this grid. */
+  link: AssetLink | null;
 }) => {
   const { api, settings, host } = useApp();
   const [tree, setTree] = useState<FolderNode[]>([]);
@@ -87,13 +92,13 @@ export const AssetGrid = ({
 
   const folderId = crumbs[crumbs.length - 1].id;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
     setLoading(true);
     setError("");
     try {
       const [folders, items] = await Promise.all([
-        api.folderTree(project.id),
-        api.assets(project.id, folderId ?? "root"),
+        api.folderTree(project.id, refresh),
+        api.assets(project.id, folderId ?? "root", refresh),
       ]);
       setTree(folders);
       setAssets(items);
@@ -110,7 +115,7 @@ export const AssetGrid = ({
 
   // The thumbnail only exists once transcoding ends, which is well after the
   // upload returns — so listen for it instead of guessing at a delay.
-  useProjectEvents(api, project.id, load);
+  useProjectEvents(api, project.id, () => load(true));
 
   /**
    * Refresh when an export lands in this project. The second pass catches the
@@ -119,8 +124,8 @@ export const AssetGrid = ({
   const latestExport = settings.exportHistory?.[0];
   useEffect(() => {
     if (!latestExport || latestExport.projectId !== project.id) return;
-    load();
-    const timer = setTimeout(load, 8000);
+    load(true);
+    const timer = setTimeout(() => load(true), 8000);
     return () => clearTimeout(timer);
   }, [latestExport?.uploadedAt, latestExport?.projectId, project.id, load]);
 
@@ -208,7 +213,7 @@ export const AssetGrid = ({
     if (!trimmed || trimmed === asset.name) return;
     try {
       await api.renameAsset(asset.id, trimmed);
-      await load();
+      await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -217,7 +222,7 @@ export const AssetGrid = ({
   const onDelete = async (asset: Asset) => {
     try {
       await api.deleteAsset(asset.id);
-      await load();
+      await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -230,7 +235,7 @@ export const AssetGrid = ({
         <ShareDialog
           asset={sharing}
           onClose={() => setSharing(null)}
-          onRenamed={load}
+          onRenamed={() => load(true)}
         />
       )}
 
@@ -297,7 +302,7 @@ export const AssetGrid = ({
             >
               <IconSearch />
             </button>
-            <button className="icon-btn" onClick={load} title="Refresh">
+            <button className="icon-btn" onClick={() => load(true)} title="Refresh">
               <IconRefresh />
             </button>
             <button
@@ -340,6 +345,7 @@ export const AssetGrid = ({
       >
         {visible.map((asset) => {
           const duration = durationOf(asset);
+          const version = asset.latest_version?.version_number ?? 1;
           return (
             <div
               key={asset.id}
@@ -372,6 +378,17 @@ export const AssetGrid = ({
                   {duration > 0 && (
                     <em className="badge time">{formatDuration(duration)}</em>
                   )}
+                  <span className="badge-row">
+                    {version > 1 && <em className="badge version">v{version}</em>}
+                    {link?.assetId === asset.id && (
+                      <em
+                        className="badge linked"
+                        title="Linked to the sequence open in Premiere"
+                      >
+                        <IconMarker width={12} height={12} />
+                      </em>
+                    )}
+                  </span>
                 </ScrubThumb>
               </span>
               <span className="card-foot">
@@ -392,7 +409,7 @@ export const AssetGrid = ({
                   <span className="card-title">{asset.name}</span>
                 )}
                 <span className="card-sub">
-                  v{asset.latest_version?.version_number ?? 1} ·{" "}
+                  v{version} ·{" "}
                   {shortDate(asset.updated_at || asset.created_at)}
                 </span>
               </span>

@@ -28,7 +28,8 @@ export const ExportView = ({
   const [name, setName] = useState("");
   const [location, setLocation] = useState<UploadLocation | null>(null);
   const [pickingLocation, setPickingLocation] = useState(false);
-  const [range, setRange] = useState(0);
+  // Persisted: the range is a habit, not a per-export decision.
+  const range = settings.exportRange;
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetPath, setPresetPath] = useState(settings.presetPath);
   const [markersAsComments, setMarkersAsComments] = useState(false);
@@ -236,7 +237,7 @@ export const ExportView = ({
                 label={entry.label}
                 checked={range === entry.value}
                 onSelect={() => {
-                  setRange(entry.value);
+                  updateSettings({ exportRange: entry.value });
                   close();
                 }}
               />

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../state";
 import type { Asset, AssetVersion, Comment } from "../../lib/freeframe/types";
 import { formatTimecode } from "../../lib/freeframe/timecode";
-import { relativeTime } from "../../lib/freeframe/format";
+import { relativeTime, shortDate } from "../../lib/freeframe/format";
 import {
   clearLink,
   clearMarkers,
@@ -39,10 +39,13 @@ import {
   IconDownload,
   IconEmoji,
   IconExternal,
+  IconFilm,
   IconFilter,
+  IconGlobe,
   IconLink,
   IconMarker,
   IconRename,
+  IconPlus,
   IconReply,
   IconSearch,
   IconSend,
@@ -52,6 +55,9 @@ import {
 } from "./Icons";
 
 const POLL_MS = 15000;
+const MIN_REVIEW_MAIN_WIDTH = 360;
+const MIN_REVIEW_SIDE_WIDTH = 240;
+const REVIEW_SPLIT_CHROME_WIDTH = 18;
 
 type SortKey = "timecode" | "oldest" | "newest" | "commenter" | "completed";
 
@@ -94,11 +100,13 @@ export const AssetView = ({
   onBack,
   link,
   onLinkChange,
+  onExport,
 }: {
   asset: Asset;
   onBack: () => void;
   link: AssetLink | null;
   onLinkChange: (link: AssetLink | null) => void;
+  onExport: () => void;
 }) => {
   const { api, settings, updateSettings, host, refreshHost } = useApp();
   const [name, setName] = useState(asset.name);
@@ -109,9 +117,9 @@ export const AssetView = ({
   const [versionId, setVersionId] = useState(asset.latest_version?.id ?? "");
   const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "internal">("public");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -154,7 +162,11 @@ export const AssetView = ({
     const onMove = (move: MouseEvent) => {
       // Dragging left widens the thread, so the delta is inverted.
       const next = startWidth - (move.clientX - startX);
-      setSideWidth(Math.max(240, Math.min(next, Math.max(280, total - 280))));
+      const maxSideWidth = Math.max(
+        MIN_REVIEW_SIDE_WIDTH,
+        total - MIN_REVIEW_MAIN_WIDTH - REVIEW_SPLIT_CHROME_WIDTH
+      );
+      setSideWidth(Math.max(MIN_REVIEW_SIDE_WIDTH, Math.min(next, maxSideWidth)));
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
@@ -300,11 +312,6 @@ export const AssetView = ({
     return () => clearInterval(timer);
   }, [loadComments]);
 
-  const flash = (message: string) => {
-    setNotice(message);
-    setTimeout(() => setNotice(""), 4000);
-  };
-
   // -- navigation -------------------------------------------------------------
 
   /** Selecting a comment moves both playheads: the panel's and Premiere's. */
@@ -392,16 +399,16 @@ export const AssetView = ({
     setBusy(true);
     try {
       if (markersOn) {
-        const result = await clearMarkers();
+        await clearMarkers();
         updateSettings({ markersVisible: false });
-        flash(`${result.removed} marker(s) hidden`);
       } else {
         const result = await pushMarkers(comments);
         updateSettings({ markersVisible: true });
-        if (result) {
-          flash(
-            `${result.added} marker(s) on the timeline` +
-              (result.skipped ? `, ${result.skipped} outside the sequence` : "")
+        // Comments outside the sequence silently have nowhere to go, so that
+        // one case is still worth saying out loud.
+        if (result?.skipped) {
+          setError(
+            `${result.skipped} comment(s) fall outside the sequence and got no marker.`
           );
         }
       }
@@ -440,7 +447,7 @@ export const AssetView = ({
     if (!result.ok) {
       // XMP can be unavailable (no project item, read-only project); the local
       // copy still keeps the panel useful for this session.
-      flash("Linked locally — Premiere would not store it in the project.");
+      setError("Linked locally — Premiere would not store it in the project.");
     }
     onLinkChange(next);
   };
@@ -448,14 +455,6 @@ export const AssetView = ({
   const onUnlink = async () => {
     await clearLink();
     onLinkChange(null);
-  };
-
-  const onOffsetChange = (value: string) => {
-    const seconds = parseFloat(value);
-    if (!isLinked || isNaN(seconds)) return;
-    const next = { ...link!, offsetSeconds: seconds };
-    setLink(next);
-    onLinkChange(next);
   };
 
   const assetUrl = (commentId?: string) => {
@@ -482,7 +481,6 @@ export const AssetView = ({
     try {
       await api.renameAsset(asset.id, trimmed);
       asset.name = trimmed;
-      flash("Renamed.");
     } catch (e) {
       setName(asset.name);
       setError(e instanceof Error ? e.message : String(e));
@@ -509,6 +507,7 @@ export const AssetView = ({
         version_id: versionId,
         body: draft.trim(),
         timecode_start: composerTime,
+        visibility,
       });
       setDraft("");
       await loadComments();
@@ -625,34 +624,7 @@ export const AssetView = ({
                     else askToLink();
                   }}
                 />
-                {isLinked && (
-                  <label className="menu-field" onClick={(e) => e.stopPropagation()}>
-                    Marker offset (s)
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={offset}
-                      onChange={(e) => onOffsetChange(e.target.value)}
-                    />
-                  </label>
-                )}
-                <MenuAction
-                  icon={<IconMarker width={14} height={14} />}
-                  label={markersOn ? "Hide markers on timeline" : "Show markers on timeline"}
-                  onSelect={() => {
-                    close();
-                    toggleMarkers();
-                  }}
-                />
                 <div className="menu-rule" />
-                <MenuAction
-                  icon={<IconShare width={14} height={14} />}
-                  label="Create Share Link"
-                  onSelect={() => {
-                    close();
-                    setSharing(true);
-                  }}
-                />
                 <MenuAction
                   icon={<IconDownload width={14} height={14} />}
                   label="Download"
@@ -667,7 +639,6 @@ export const AssetView = ({
                   onSelect={() => {
                     close();
                     navigator.clipboard?.writeText(assetUrl());
-                    flash("Link copied.");
                   }}
                 />
                 <MenuAction
@@ -706,18 +677,67 @@ export const AssetView = ({
             )}
           </Dropdown>
         )}
-        <span className="spacer" />
-        <select
-          className="version"
-          value={versionId}
-          onChange={(e) => setVersionId(e.target.value)}
+        <Dropdown
+          align="left"
+          triggerClass="version-trigger"
+          title="Versions"
+          trigger={
+            <>
+              v{versions.find((v) => v.id === versionId)?.version_number ?? 1}
+              <IconChevronDown width={12} height={12} />
+            </>
+          }
         >
-          {versions.map((version) => (
-            <option key={version.id} value={version.id}>
-              v{version.version_number}
-            </option>
-          ))}
-        </select>
+          {(close) => (
+            <div className="version-list">
+              {[...versions].reverse().map((version) => {
+                const isLatest = version.id === asset.latest_version?.id;
+                return (
+                  <button
+                    key={version.id}
+                    className={`version-row${version.id === versionId ? " on" : ""}`}
+                    onClick={() => {
+                      setVersionId(version.id);
+                      close();
+                    }}
+                  >
+                    <em className="badge version">v{version.version_number}</em>
+                    <span className="version-thumb">
+                      {/* Only the newest version has a thumbnail URL in the
+                          API; older ones fall back to the film glyph. */}
+                      {isLatest && asset.thumbnail_url ? (
+                        <img src={asset.thumbnail_url} alt="" />
+                      ) : (
+                        <IconFilm width={14} height={14} />
+                      )}
+                    </span>
+                    <span className="version-meta">
+                      <strong>{name}</strong>
+                      <span>{shortDate(version.created_at)}</span>
+                    </span>
+                    {version.id === versionId && (
+                      <IconCheck width={13} height={13} className="version-check" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Dropdown>
+
+        <span className="spacer" />
+
+        <button className="chip with-icon" onClick={() => setSharing(true)}>
+          <IconShare width={13} height={13} />
+          Share
+        </button>
+        <button
+          className="primary icon-btn"
+          onClick={onExport}
+          title="Export this sequence"
+        >
+          <IconPlus width={15} height={15} />
+        </button>
       </nav>
 
       <div className={`review${wide ? " wide" : ""}`} ref={reviewRef}>
@@ -903,7 +923,6 @@ export const AssetView = ({
           </div>
 
           {error && <p className="error">{error}</p>}
-          {notice && <p className="notice">{notice}</p>}
 
           <ul className="comments" ref={listRef}>
             {visible.map((comment) => (
@@ -1022,21 +1041,59 @@ export const AssetView = ({
           </ul>
 
           <div className="composer">
-            <span className="tc">{formatTimecode(composerTime, host.fps)}</span>
-            <AutoTextarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Leave your comment…"
-            />
-            <EmojiPicker onPick={(emoji) => setDraft((text) => text + emoji)} />
-            <button
-              className="primary"
-              onClick={onPost}
-              disabled={busy || !draft.trim()}
-              title="Post"
-            >
-              <IconSend width={14} height={14} />
-            </button>
+            <div className="composer-input">
+              <span className="tc">{formatTimecode(composerTime, host.fps)}</span>
+              <AutoTextarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Leave your comment…"
+              />
+            </div>
+            <div className="composer-actions">
+              <EmojiPicker onPick={(emoji) => setDraft((text) => text + emoji)} />
+              <span className="spacer" />
+              <Dropdown
+                up
+                align="right"
+                triggerClass="chip with-icon"
+                trigger={
+                  <>
+                    <IconGlobe width={13} height={13} />
+                    {visibility === "internal" ? "Internal" : "Public"}
+                    <IconChevronDown width={12} height={12} />
+                  </>
+                }
+              >
+                {(close) => (
+                  <>
+                    <MenuRadio
+                      label="Public — everyone on the asset"
+                      checked={visibility === "public"}
+                      onSelect={() => {
+                        setVisibility("public");
+                        close();
+                      }}
+                    />
+                    <MenuRadio
+                      label="Internal — team only"
+                      checked={visibility === "internal"}
+                      onSelect={() => {
+                        setVisibility("internal");
+                        close();
+                      }}
+                    />
+                  </>
+                )}
+              </Dropdown>
+              <button
+                className="primary"
+                onClick={onPost}
+                disabled={busy || !draft.trim()}
+                title="Post"
+              >
+                <IconSend width={14} height={14} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

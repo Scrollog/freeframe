@@ -40,11 +40,11 @@ export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = async (refresh = false) => {
     setLoading(true);
     setError("");
     try {
-      setProjects(await api.projects());
+      setProjects(await api.projects(refresh));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -77,7 +77,7 @@ export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) 
     try {
       const project = await api.createProject(name);
       setCreating(false);
-      await load();
+      await load(true);
       onOpen(project);
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : String(e));
@@ -89,7 +89,7 @@ export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) 
   const onDelete = async (project: Project) => {
     try {
       await api.deleteProject(project.id);
-      await load();
+      await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -157,7 +157,7 @@ export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) 
             >
               <IconSearch />
             </button>
-            <button className="icon-btn" onClick={load} title="Refresh">
+            <button className="icon-btn" onClick={() => load(true)} title="Refresh">
               <IconRefresh />
             </button>
           </>

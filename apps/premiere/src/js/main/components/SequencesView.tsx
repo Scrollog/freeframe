@@ -13,6 +13,7 @@ import { ApiError } from "../../lib/freeframe/api";
 import { Dropdown, MenuAction } from "./Dropdown";
 import {
   IconClose,
+  IconComment,
   IconCopy,
   IconExternal,
   IconFilm,
@@ -55,6 +56,7 @@ export const SequencesView = ({
 }) => {
   const { api, settings, updateSettings, host, exportJobs, cancelExport } = useApp();
   const [thumbs, setThumbs] = useState<Record<string, Asset>>({});
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [thumbTick, setThumbTick] = useState(0);
   const [gone, setGone] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -89,22 +91,53 @@ export const SequencesView = ({
     ids.forEach(async (id) => {
       // Refetch while the thumbnail is still missing: it appears only when the
       // server finishes transcoding, after this row was first drawn.
-      if (thumbs[id]?.thumbnail_url) return;
+      let asset = thumbs[id];
       try {
-        const asset = await api.asset(id);
-        if (!cancelled) setThumbs((current) => ({ ...current, [id]: asset }));
+        if (!asset?.thumbnail_url) {
+          asset = await api.asset(id);
+          if (!cancelled) {
+            setThumbs((current) => {
+              const previous = current[id];
+              // Avoid rerendering in a loop while a transcode still has no
+              // thumbnail; the existing poll will try again shortly.
+              if (
+                previous?.thumbnail_url === asset!.thumbnail_url &&
+                previous?.latest_version?.id === asset!.latest_version?.id
+              ) {
+                return current;
+              }
+              return { ...current, [id]: asset! };
+            });
+          }
+        }
       } catch (e) {
         // The history is a local log, so it outlived assets deleted anywhere
         // else. A 404 means this row can never resolve again — drop it.
         if (!cancelled && e instanceof ApiError && (e.status === 404 || e.status === 403)) {
           setGone((current) => (current.includes(id) ? current : [...current, id]));
         }
+        return;
+      }
+
+      const versionId = asset?.latest_version?.id;
+      if (!versionId || commentCounts[id] !== undefined) return;
+      try {
+        const comments = await api.comments(id, versionId);
+        if (cancelled) return;
+        // Replies count too, matching the total shown in the review thread.
+        const total = comments.reduce(
+          (sum, comment) => sum + 1 + (comment.replies?.length ?? 0),
+          0
+        );
+        setCommentCounts((current) => ({ ...current, [id]: total }));
+      } catch {
+        // The badge is supplemental; keep the asset usable if its count fails.
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [api, history, thumbTick]);
+  }, [api, history, thumbTick, thumbs, commentCounts]);
 
   // Poll gently while any visible row is still waiting on its thumbnail.
   useEffect(() => {
@@ -141,6 +174,7 @@ export const SequencesView = ({
     sequenceName?: string;
   }) => {
     const asset = thumbs[assetId];
+    const version = asset?.latest_version?.version_number;
     return (
       <div className="seq-row" onClick={() => open(assetId)}>
         <span className="seq-thumb">
@@ -149,9 +183,18 @@ export const SequencesView = ({
           ) : (
             <IconFilm width={18} height={18} />
           )}
+          {!!commentCounts[assetId] && (
+            <em className="seq-comment-count">
+              <IconComment width={11} height={11} />
+              {commentCounts[assetId]}
+            </em>
+          )}
         </span>
         <span className="seq-meta">
-          <strong>{name}</strong>
+          <span className="seq-title">
+            <strong>{name}</strong>
+            {!!version && version > 1 && <em className="seq-version">v{version}</em>}
+          </span>
           <span className="seq-sub">
             <IconFilm width={11} height={11} />
             {projectName}
@@ -208,6 +251,8 @@ export const SequencesView = ({
     return groups;
   }, [history]);
 
+  const currentAsset = current ? thumbs[current.assetId] : undefined;
+
   return (
     <div className="sequences">
       <div className="seq-head">
@@ -221,9 +266,18 @@ export const SequencesView = ({
 
       {/* One surface: the row and its status strip light up together. */}
       <div
-        className={`seq-card${!active.length && current ? " clickable" : ""}`}
+        className={`seq-card${!active.length && current ? " clickable" : ""}${
+          currentAsset?.thumbnail_url ? " has-thumbnail" : ""
+        }`}
         onClick={() => !active.length && current && open(current.assetId)}
       >
+        {currentAsset?.thumbnail_url && (
+          <span
+            className="seq-backdrop"
+            aria-hidden="true"
+            style={{ backgroundImage: `url("${currentAsset.thumbnail_url}")` }}
+          />
+        )}
         {active.length > 0 ? (
           active.map((job) => (
             <div key={job.id}>
