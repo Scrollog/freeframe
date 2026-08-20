@@ -40,6 +40,8 @@ export interface Settings {
   renderMode: "ame" | "premiere";
   /** Card size chosen under Appearance, in the browse grids. */
   cardSize: "small" | "medium" | "large";
+  /** Comment ids already opened in the panel — the API has no read state. */
+  readComments: string[];
   /** Assets this machine has exported, newest first. */
   exportHistory: {
     assetId: string;
@@ -67,6 +69,7 @@ export const defaultSettings: Settings = {
   annotationsVisible: true,
   renderMode: "ame",
   cardSize: "medium",
+  readComments: [],
   exportHistory: [],
   links: {},
 };

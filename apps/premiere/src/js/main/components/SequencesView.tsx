@@ -9,6 +9,7 @@ import type { Asset } from "../../lib/freeframe/types";
 import { relativeTime } from "../../lib/freeframe/format";
 import type { AssetLink } from "../../lib/freeframe/host";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
+import { ApiError } from "../../lib/freeframe/api";
 import { Dropdown, MenuAction } from "./Dropdown";
 import {
   IconClose,
@@ -27,6 +28,7 @@ const PHASE_LABEL: Record<string, string> = {
   uploading: "Uploading",
   done: "Uploaded",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 /** `Today` / `Yesterday` / a date, for the history section headers. */
@@ -51,12 +53,27 @@ export const SequencesView = ({
   onExport: () => void;
   onOpenAsset: (asset: Asset) => void;
 }) => {
-  const { api, settings, host, exportJobs, dismissExport } = useApp();
+  const { api, settings, updateSettings, host, exportJobs, cancelExport } = useApp();
   const [thumbs, setThumbs] = useState<Record<string, Asset>>({});
+  const [thumbTick, setThumbTick] = useState(0);
+  const [gone, setGone] = useState<string[]>([]);
   const [error, setError] = useState("");
 
-  const history = settings.exportHistory ?? [];
-  const active = exportJobs.filter((job) => job.phase !== "done");
+  const history = useMemo(
+    () => (settings.exportHistory ?? []).filter((entry) => !gone.includes(entry.assetId)),
+    [settings.exportHistory, gone]
+  );
+
+  // Prune the stored history once the dead rows have been identified.
+  useEffect(() => {
+    if (!gone.length) return;
+    const stored = settings.exportHistory ?? [];
+    const kept = stored.filter((entry) => !gone.includes(entry.assetId));
+    if (kept.length !== stored.length) updateSettings({ exportHistory: kept });
+  }, [gone, settings.exportHistory, updateSettings]);
+  const active = exportJobs.filter(
+    (job) => job.phase !== "done" && job.phase !== "cancelled"
+  );
 
   /** The asset that belongs to the open sequence, if it has been exported. */
   const current = useMemo(() => {
@@ -70,18 +87,34 @@ export const SequencesView = ({
     let cancelled = false;
     const ids = [...new Set(history.slice(0, 20).map((entry) => entry.assetId))];
     ids.forEach(async (id) => {
-      if (thumbs[id]) return;
+      // Refetch while the thumbnail is still missing: it appears only when the
+      // server finishes transcoding, after this row was first drawn.
+      if (thumbs[id]?.thumbnail_url) return;
       try {
         const asset = await api.asset(id);
         if (!cancelled) setThumbs((current) => ({ ...current, [id]: asset }));
       } catch (e) {
-        // A deleted asset simply keeps its placeholder tile.
+        // The history is a local log, so it outlived assets deleted anywhere
+        // else. A 404 means this row can never resolve again — drop it.
+        if (!cancelled && e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+          setGone((current) => (current.includes(id) ? current : [...current, id]));
+        }
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [api, history]);
+  }, [api, history, thumbTick]);
+
+  // Poll gently while any visible row is still waiting on its thumbnail.
+  useEffect(() => {
+    const pending = history
+      .slice(0, 20)
+      .some((entry) => !thumbs[entry.assetId]?.thumbnail_url);
+    if (!pending) return;
+    const timer = setTimeout(() => setThumbTick((tick) => tick + 1), 5000);
+    return () => clearTimeout(timer);
+  }, [history, thumbs]);
 
   const assetUrl = (projectId: string, assetId: string) =>
     `${(settings.webUrl || settings.serverUrl).replace(/\/+$/, "")}/projects/${projectId}/assets/${assetId}`;
@@ -214,9 +247,17 @@ export const SequencesView = ({
                     ? ` ${job.progress}%`
                     : ""}
                   {job.error ? ` — ${job.error}` : ""}
-                  <button className="text-btn" onClick={() => dismissExport(job.id)}>
+                  <button
+                    className="text-btn"
+                    onClick={() => cancelExport(job.id)}
+                    title={
+                      job.phase === "uploading"
+                        ? "Stop the upload"
+                        : "Remove this job. A render already queued in Media Encoder continues there."
+                    }
+                  >
                     <IconClose width={12} height={12} />
-                    Dismiss
+                    Cancel
                   </button>
                 </span>
               </div>

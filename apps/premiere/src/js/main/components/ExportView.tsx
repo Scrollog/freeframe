@@ -35,6 +35,9 @@ export const ExportView = ({
   const [keepLocalCopy, setKeepLocalCopy] = useState(false);
   const [versionStack, setVersionStack] = useState(!!link);
   const [nextVersion, setNextVersion] = useState(0);
+  // The link can outlive its asset — deleted here, on the web, or by someone
+  // else. Until the version count comes back we don't know which.
+  const [linkedAssetGone, setLinkedAssetGone] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => setName(host.sequenceName ?? ""), [host.sequenceName]);
@@ -42,15 +45,19 @@ export const ExportView = ({
 
   // Show which version the render will land on, the way the web viewer does.
   useEffect(() => {
-    if (!link) {
-      setNextVersion(0);
-      return;
-    }
+    setNextVersion(0);
+    setLinkedAssetGone(false);
+    if (!link) return;
     let cancelled = false;
     api
       .versions(link.assetId)
       .then((list) => !cancelled && setNextVersion(list.length + 1))
-      .catch(() => !cancelled && setNextVersion(0));
+      .catch(() => {
+        if (cancelled) return;
+        // Nothing to stack onto: fall back to creating a separate asset.
+        setLinkedAssetGone(true);
+        setVersionStack(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -67,16 +74,19 @@ export const ExportView = ({
   };
   useEffect(loadPresets, []);
 
-  // Default the destination to the linked asset's project.
+  // Default the destination to the linked asset's project — and re-pin it
+  // whenever stacking is switched on, since the version has to go there.
   useEffect(() => {
-    if (location || !link) return;
+    if (!link) return;
+    if (location && !versionStack) return;
+    if (versionStack && location?.projectId === link.projectId) return;
     setLocation({
       projectId: link.projectId,
       projectName: link.projectName || "Linked project",
       folderId: null,
       folderName: "Assets",
     });
-  }, [link, location]);
+  }, [link, location, versionStack]);
 
   const grouped = useMemo(() => {
     const groups: Record<string, Preset[]> = {};
@@ -155,13 +165,15 @@ export const ExportView = ({
       <Toggle
         label="Add to Version Stack"
         hint={
-          link
+          linkedAssetGone
+            ? `${link?.assetName} is no longer on the server, so there is nothing to stack onto. This export creates a new asset.`
+            : link
             ? `Uploads on top of ${link.assetName} as a new version instead of creating a separate asset.`
             : "Available once this sequence has an asset — the first export creates one, or link one from the Review tab."
         }
         checked={versionStack}
         onChange={setVersionStack}
-        disabled={!link}
+        disabled={!link || linkedAssetGone}
       />
 
       <div className="form-row">
@@ -175,20 +187,31 @@ export const ExportView = ({
             onChange={(e) => setName(e.target.value)}
           />
           {versionStack && !!nextVersion && (
-            <em className="version-badge">v{nextVersion}</em>
+            <em className="version-badge" title="Uploads as this version of the asset">
+              v{nextVersion}
+            </em>
           )}
         </span>
       </div>
 
       <div className="form-row">
         <span className="form-label">Upload Location</span>
-        <button className="form-control" onClick={() => setPickingLocation(true)}>
+        <button
+          className="form-control"
+          disabled={versionStack}
+          title={
+            versionStack
+              ? "A new version always lands on the asset's own project."
+              : undefined
+          }
+          onClick={() => setPickingLocation(true)}
+        >
           <span className="control-value">
             {location
               ? `${location.projectName} / ${location.folderName}`
               : "Select a FreeFrame location"}
           </span>
-          <IconRename width={14} height={14} />
+          {!versionStack && <IconRename width={14} height={14} />}
         </button>
       </div>
 

@@ -17,7 +17,13 @@ import { uploadFile } from "./upload";
 import type { FreeFrameApi } from "./api";
 import { fs, path } from "../cep/node";
 
-export type ExportPhase = "queued" | "rendering" | "uploading" | "done" | "failed";
+export type ExportPhase =
+  | "queued"
+  | "rendering"
+  | "uploading"
+  | "done"
+  | "failed"
+  | "cancelled";
 
 export interface ExportRequest {
   name: string;
@@ -88,6 +94,9 @@ export const useExportJobs = (
   onFinished: (entry: ExportHistoryEntry) => void
 ) => {
   const [jobs, setJobs] = useState<ExportJob[]>([]);
+  // Checked between upload parts; a render already handed to AME can't be
+  // recalled, so cancelling there only stops this side of the work.
+  const cancelled = useRef<Set<string>>(new Set());
   // The AME callbacks fire outside React and need the live list.
   const jobsRef = useRef<ExportJob[]>([]);
   jobsRef.current = jobs;
@@ -112,6 +121,7 @@ export const useExportJobs = (
           assetId: job.assetId,
           assetName: job.name,
           onProgress: (progress) => patch(job.id, { progress }),
+          isCancelled: () => cancelled.current.has(job.id),
         });
 
         if (job.markersAsComments) {
@@ -157,6 +167,10 @@ export const useExportJobs = (
           uploadedAt: new Date().toISOString(),
         });
       } catch (e) {
+        if (cancelled.current.has(job.id)) {
+          patch(job.id, { phase: "cancelled", finishedAt: new Date().toISOString() });
+          return;
+        }
         patch(job.id, {
           phase: "failed",
           error: e instanceof Error ? e.message : String(e),
@@ -257,10 +271,23 @@ export const useExportJobs = (
     [patch]
   );
 
-  /** Drops the job from the panel. AME keeps its own queue — see the note. */
-  const dismiss = useCallback((id: string) => {
-    setJobs((current) => current.filter((job) => job.id !== id));
-  }, []);
+  /**
+   * Stops an upload in flight — the next part boundary aborts it and the
+   * server-side multipart upload is discarded. A render already queued in
+   * Media Encoder keeps going there; only its row leaves the panel.
+   */
+  const cancel = useCallback(
+    (id: string) => {
+      cancelled.current.add(id);
+      const job = jobsRef.current.find((entry) => entry.id === id);
+      if (job && job.phase === "uploading") {
+        patch(id, { phase: "cancelled", finishedAt: new Date().toISOString() });
+        return;
+      }
+      setJobs((current) => current.filter((entry) => entry.id !== id));
+    },
+    [patch]
+  );
 
-  return { jobs, startExport: start, dismissExport: dismiss };
+  return { jobs, startExport: start, cancelExport: cancel };
 };

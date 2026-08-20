@@ -75,6 +75,29 @@ export interface Author {
   avatar_url?: string | null;
 }
 
+export type SharePermission = "view" | "comment" | "approve";
+
+export interface ShareOptions {
+  permission: SharePermission;
+  /** "public" needs no account; "secure" requires signing in. */
+  visibility: "public" | "secure";
+  allow_download: boolean;
+  show_versions: boolean;
+  show_watermark: boolean;
+  /** ISO date; null clears any expiry. */
+  expires_at: string | null;
+  password: string | null;
+}
+
+export interface ShareLink extends Omit<ShareOptions, "password"> {
+  id: string;
+  token: string;
+  title: string;
+  is_enabled: boolean;
+  has_password: boolean;
+  created_at: string;
+}
+
 export interface Annotation {
   id: string;
   /** Fabric.js canvas JSON, authored against `_canvasWidth`/`_canvasHeight`. */

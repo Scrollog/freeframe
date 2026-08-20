@@ -354,3 +354,24 @@ export const IconInfo = (props: SVGProps<SVGSVGElement>) => (
     <path d="M12 11v5.5M12 7.8h.01" />
   </Svg>
 );
+
+export const IconGlobe = (props: SVGProps<SVGSVGElement>) => (
+  <Svg {...props}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17" />
+    <path d="M12 3.5a13 13 0 0 1 0 17a13 13 0 0 1 0-17z" />
+  </Svg>
+);
+
+export const IconKey = (props: SVGProps<SVGSVGElement>) => (
+  <Svg {...props}>
+    <circle cx="8" cy="15" r="3.5" />
+    <path d="M10.6 12.6L19 4.2M16.4 6.8l2 2M14 9.2l2 2" />
+  </Svg>
+);
+
+export const IconDroplet = (props: SVGProps<SVGSVGElement>) => (
+  <Svg {...props}>
+    <path d="M12 3.5s6 6.3 6 10.2a6 6 0 0 1-12 0c0-3.9 6-10.2 6-10.2z" />
+  </Svg>
+);

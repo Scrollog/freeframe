@@ -25,6 +25,7 @@ import { Dropdown, MenuAction, MenuCheck, MenuRadio } from "./Dropdown";
 import { EmojiPicker } from "./EmojiPicker";
 import { AutoTextarea } from "./AutoTextarea";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
+import { ShareDialog } from "./ShareDialog";
 import {
   IconAnnotation,
   IconAttachment,
@@ -103,6 +104,7 @@ export const AssetView = ({
   const [name, setName] = useState(asset.name);
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmRequest | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [versions, setVersions] = useState<AssetVersion[]>([]);
   const [versionId, setVersionId] = useState(asset.latest_version?.id ?? "");
   const [comments, setComments] = useState<Comment[]>([]);
@@ -118,6 +120,12 @@ export const AssetView = ({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("oldest");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  // Read state is local: the API tracks notifications, not per-comment reads.
+  const readIds = useMemo(
+    () => new Set(settings.readComments ?? []),
+    [settings.readComments]
+  );
+  const [justRead, setJustRead] = useState<Set<string>>(new Set());
   const listRef = useRef<HTMLUListElement>(null);
   const playerRef = useRef<PlayerHandle>(null);
   const reviewRef = useRef<HTMLDivElement>(null);
@@ -300,15 +308,27 @@ export const AssetView = ({
   // -- navigation -------------------------------------------------------------
 
   /** Selecting a comment moves both playheads: the panel's and Premiere's. */
+  const markRead = useCallback(
+    (id: string) => {
+      setJustRead((current) => new Set(current).add(id));
+      if (readIds.has(id)) return;
+      // Cap the log: it only exists to grey out what has already been seen.
+      const next = [...(settings.readComments ?? []), id].slice(-800);
+      updateSettings({ readComments: next });
+    },
+    [readIds, settings.readComments, updateSettings]
+  );
+
   const jumpTo = useCallback(
     async (comment: Comment) => {
       setActiveId(comment.id);
+      markRead(comment.id);
       if (comment.timecode_start === null || comment.timecode_start === undefined) return;
       const at = comment.timecode_start as number;
       playerRef.current?.seek(at);
       if (inPremiere()) await setPlayheadSeconds(at + offset);
     },
-    [offset]
+    [offset, markRead]
   );
 
   const step = async (direction: 1 | -1) => {
@@ -444,17 +464,6 @@ export const AssetView = ({
     return `${base}/projects/${asset.project_id}/assets/${asset.id}${suffix}`;
   };
 
-  const onShare = async () => {
-    try {
-      const { token } = await api.createShare(asset.id);
-      const base = (settings.webUrl || settings.serverUrl).replace(/\/+$/, "");
-      navigator.clipboard?.writeText(`${base}/share/${token}`);
-      flash("Share link copied.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const onDownload = async () => {
     try {
       openLinkInBrowser(await api.downloadUrl(asset.id));
@@ -566,6 +575,13 @@ export const AssetView = ({
   return (
     <div className="asset-view">
       <ConfirmDialog request={confirming} onClose={() => setConfirming(null)} />
+      {sharing && (
+        <ShareDialog
+          asset={asset}
+          onClose={() => setSharing(false)}
+          onRenamed={(next) => setName(next)}
+        />
+      )}
 
       <nav className="navbar">
         <button className="icon-btn" onClick={onBack} title="Back">
@@ -634,7 +650,7 @@ export const AssetView = ({
                   label="Create Share Link"
                   onSelect={() => {
                     close();
-                    onShare();
+                    setSharing(true);
                   }}
                 />
                 <MenuAction
@@ -900,14 +916,21 @@ export const AssetView = ({
                 onClick={() => jumpTo(comment)}
               >
                 <div className="comment-head">
-                  <span className="avatar">{initialsOf(authorOf(comment))}</span>
+                  <span className="avatar">
+                    {initialsOf(authorOf(comment))}
+                    {!readIds.has(comment.id) && <span className="unread-dot" />}
+                  </span>
                   <span className="author">{authorOf(comment)}</span>
                   {comment.annotation && (
                     <span className="has-annotation" title="Has an annotation">
                       <IconAnnotation width={12} height={12} />
                     </span>
                   )}
-                  <span className="when">{relativeTime(comment.created_at)}</span>
+                  <span className="when">
+                    {justRead.has(comment.id)
+                      ? "Read by you"
+                      : relativeTime(comment.created_at)}
+                  </span>
                   <span className="index">#{indexOf.get(comment.id)}</span>
                   <button
                     className={`done-box${comment.resolved ? " on" : ""}`}

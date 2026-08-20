@@ -34,13 +34,15 @@ interface AppState {
   status: AuthStatus;
   authError: string;
   login: (email: string, password: string) => Promise<void>;
+  /** Adopts a session handed over by the web app's /link page. */
+  adoptSession: (tokens: { accessToken: string; refreshToken: string }) => Promise<void>;
   logout: () => void;
   host: HostInfo;
   refreshHost: () => Promise<void>;
   /** Renders in flight, newest first. Survives the export dialog closing. */
   exportJobs: ExportJob[];
   startExport: (request: ExportRequest) => Promise<void>;
-  dismissExport: (id: string) => void;
+  cancelExport: (id: string) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -133,6 +135,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     [api]
   );
 
+  const adoptSession = useCallback(
+    async ({ accessToken, refreshToken }: { accessToken: string; refreshToken: string }) => {
+      setAuthError("");
+      api.accessToken = accessToken;
+      api.refreshToken = refreshToken;
+      updateSettings({ accessToken, refreshToken });
+      const me = await api.me();
+      setUser(me);
+      setStatus("ready");
+    },
+    [api, updateSettings]
+  );
+
   const logout = useCallback(() => {
     api.logout();
     setUser(null);
@@ -153,7 +168,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     [updateSettings]
   );
 
-  const { jobs, startExport, dismissExport } = useExportJobs(api, rememberExport);
+  const { jobs, startExport, cancelExport } = useExportJobs(api, rememberExport);
 
   const value: AppState = {
     settings,
@@ -163,12 +178,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     status,
     authError,
     login,
+    adoptSession,
     logout,
     host,
     refreshHost,
     exportJobs: jobs,
     startExport,
-    dismissExport,
+    cancelExport,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -16,6 +16,7 @@ from ..services.auth_service import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
     get_user_by_email, get_user_by_id,
+    PANEL_CLIENT,
 )
 from ..services.redis_service import (
     generate_magic_code, store_magic_code, verify_magic_code as redis_verify_magic_code,
@@ -200,8 +201,33 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Session expired, please log in again")
     return TokenResponse(
         access_token=create_access_token(str(user.id), token_version=user.token_version),
-        refresh_token=create_refresh_token(str(user.id), token_version=user.token_version),
+        # Carry the client through, so a panel session stays a panel session.
+        refresh_token=create_refresh_token(
+            str(user.id), token_version=user.token_version, client=payload.get("cli")
+        ),
         needs_password=user.password_hash is None,
+    )
+
+
+@router.post("/session/clone", response_model=TokenResponse)
+def clone_session(current_user: User = Depends(get_current_user)):
+    """Issue a second, independent session for the Premiere panel.
+
+    The panel signs in by opening the web app, which hands the session over to
+    a loopback listener. Handing over the browser's own tokens would tie the
+    two together — signing out in one would sign out the other — so mint a
+    fresh pair instead, with the longer lifetime a workstation warrants.
+    """
+    return TokenResponse(
+        access_token=create_access_token(
+            str(current_user.id), token_version=current_user.token_version
+        ),
+        refresh_token=create_refresh_token(
+            str(current_user.id),
+            token_version=current_user.token_version,
+            client=PANEL_CLIENT,
+        ),
+        needs_password=current_user.password_hash is None,
     )
 
 

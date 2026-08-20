@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+    # Sessions cloned to the Premiere panel (see /auth/session/clone).
+    panel_refresh_token_expire_days: int = 30
     frontend_url: str = "http://localhost:3000"
     # Extra browser origins allowed by CORS, comma-separated (in addition to the
     # frontend + localhost defaults). Set to "*" to allow any origin — handy for

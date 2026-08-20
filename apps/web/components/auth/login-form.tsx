@@ -12,6 +12,17 @@ import type { VerifyCodeResponse, AuthTokens } from '@/types'
 
 type Step = 'email' | 'code' | 'password' | 'classic'
 
+/**
+ * Where to land after signing in. `?from=` is set when something bounced the
+ * user here — the Premiere panel's /link handoff relies on coming back.
+ */
+function destination(): string {
+  if (typeof window === 'undefined') return '/projects'
+  const from = new URLSearchParams(window.location.search).get('from')
+  // Only same-origin paths: an absolute URL here would be an open redirect.
+  return from && from.startsWith('/') && !from.startsWith('//') ? from : '/projects'
+}
+
 export function LoginForm() {
   const router = useRouter()
   const [step, setStep] = useState<Step>('classic')
@@ -130,7 +141,7 @@ export function LoginForm() {
         setTokens(res.access_token, res.refresh_token)
         await useAuthStore.getState().fetchUser()
         const user = useAuthStore.getState().user
-        router.replace('/projects')
+        router.replace(destination())
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -185,7 +196,7 @@ export function LoginForm() {
       setTokens(res.access_token, res.refresh_token)
       await useAuthStore.getState().fetchUser()
       const u = useAuthStore.getState().user
-      router.replace('/projects')
+      router.replace(destination())
     } catch (err) {
       if (err instanceof ApiError) {
         setGeneralError(err.detail)
@@ -221,7 +232,7 @@ export function LoginForm() {
       setTokens(res.access_token, res.refresh_token)
       await useAuthStore.getState().fetchUser()
       const u = useAuthStore.getState().user
-      router.replace('/projects')
+      router.replace(destination())
     } catch (err) {
       if (err instanceof ApiError) {
         setClassicError(err.detail)

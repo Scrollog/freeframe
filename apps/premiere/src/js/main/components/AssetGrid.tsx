@@ -6,7 +6,10 @@ import { formatDuration, shortDate } from "../../lib/freeframe/format";
 import { Dropdown, MenuAction } from "./Dropdown";
 import { AppearanceMenu, SortedByMenu, cardMinWidth } from "./BrowseControls";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
+import { useProjectEvents } from "../../lib/freeframe/events";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
+import { ShareDialog } from "./ShareDialog";
+import { ScrubThumb } from "./ScrubThumb";
 import {
   IconCloudUpload,
   IconClose,
@@ -21,6 +24,7 @@ import {
   IconTrash,
   IconFolder,
   IconHome,
+  IconPlus,
   IconRefresh,
   IconSearch,
 } from "./Icons";
@@ -77,6 +81,7 @@ export const AssetGrid = ({
   const [error, setError] = useState("");
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [confirming, setConfirming] = useState<ConfirmRequest | null>(null);
+  const [sharing, setSharing] = useState<Asset | null>(null);
   const [renamingId, setRenamingId] = useState("");
   const [draftName, setDraftName] = useState("");
 
@@ -102,6 +107,10 @@ export const AssetGrid = ({
   useEffect(() => {
     load();
   }, [load]);
+
+  // The thumbnail only exists once transcoding ends, which is well after the
+  // upload returns — so listen for it instead of guessing at a delay.
+  useProjectEvents(api, project.id, load);
 
   /**
    * Refresh when an export lands in this project. The second pass catches the
@@ -185,17 +194,6 @@ export const AssetGrid = ({
       asset.project_id
     }/assets/${asset.id}`;
 
-  const onShare = async (asset: Asset) => {
-    try {
-      const { token } = await api.createShare(asset.id);
-      const base = (settings.webUrl || settings.serverUrl).replace(/\/+$/, "");
-      navigator.clipboard?.writeText(`${base}/share/${token}`);
-      setError("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const onDownload = async (asset: Asset) => {
     try {
       openLinkInBrowser(await api.downloadUrl(asset.id));
@@ -228,6 +226,13 @@ export const AssetGrid = ({
   return (
     <div className="browse">
       <ConfirmDialog request={confirming} onClose={() => setConfirming(null)} />
+      {sharing && (
+        <ShareDialog
+          asset={sharing}
+          onClose={() => setSharing(null)}
+          onRenamed={load}
+        />
+      )}
 
       <nav className="navbar">
         <button className="icon-btn" onClick={onBack} title="All projects">
@@ -295,6 +300,13 @@ export const AssetGrid = ({
             <button className="icon-btn" onClick={load} title="Refresh">
               <IconRefresh />
             </button>
+            <button
+              className="primary icon-btn"
+              onClick={onExport}
+              title="Export the active sequence here"
+            >
+              <IconPlus width={15} height={15} />
+            </button>
           </>
         )}
       </div>
@@ -340,22 +352,27 @@ export const AssetGrid = ({
               }}
             >
               <span className="poster asset-poster">
-                {asset.thumbnail_url ? (
-                  <img src={asset.thumbnail_url} alt="" />
-                ) : (
-                  <span className="poster-fallback">
-                    <IconFilm width={22} height={22} />
-                  </span>
-                )}
-                {!!counts[asset.id] && (
-                  <em className="badge count">
-                    <IconComment width={11} height={11} />
-                    {counts[asset.id]}
-                  </em>
-                )}
-                {duration > 0 && (
-                  <em className="badge time">{formatDuration(duration)}</em>
-                )}
+                <ScrubThumb
+                  api={api}
+                  assetId={asset.id}
+                  versionId={asset.latest_version?.id}
+                  thumbnailUrl={asset.thumbnail_url}
+                >
+                  {!asset.thumbnail_url && (
+                    <span className="poster-fallback">
+                      <IconFilm width={22} height={22} />
+                    </span>
+                  )}
+                  {!!counts[asset.id] && (
+                    <em className="badge count">
+                      <IconComment width={11} height={11} />
+                      {counts[asset.id]}
+                    </em>
+                  )}
+                  {duration > 0 && (
+                    <em className="badge time">{formatDuration(duration)}</em>
+                  )}
+                </ScrubThumb>
               </span>
               <span className="card-foot">
                 {renamingId === asset.id ? (
@@ -392,7 +409,7 @@ export const AssetGrid = ({
                         label="Create Share Link"
                         onSelect={() => {
                           close();
-                          onShare(asset);
+                          setSharing(asset);
                         }}
                       />
                       <div className="menu-rule" />

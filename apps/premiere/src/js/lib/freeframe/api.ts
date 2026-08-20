@@ -12,6 +12,9 @@ import type {
   InitiateUploadResponse,
   Me,
   Project,
+  ShareLink,
+  SharePermission,
+  ShareOptions,
   Tokens,
 } from "./types";
 
@@ -183,11 +186,30 @@ export class FreeFrameApi {
     });
   }
 
-  /** Creates a public review link and returns its token. */
-  createShare(assetId: string) {
-    return this.request<{ token: string }>(`/assets/${assetId}/share`, {
+  /** Review links already made for this asset, newest first. */
+  shares(assetId: string) {
+    return this.request<ShareLink[]>(`/assets/${assetId}/shares`);
+  }
+
+  createShare(assetId: string, options: Partial<ShareOptions> = {}) {
+    return this.request<ShareLink>(`/assets/${assetId}/share`, {
       method: "POST",
-      body: JSON.stringify({ permission: "view", allow_download: false }),
+      body: JSON.stringify({
+        permission: "comment",
+        visibility: "public",
+        allow_download: true,
+        show_versions: true,
+        show_watermark: false,
+        ...options,
+      }),
+    });
+  }
+
+  /** Grants a specific person access, by email. */
+  shareWithUser(assetId: string, email: string, permission: SharePermission = "comment") {
+    return this.request<{ id: string }>(`/assets/${assetId}/share/user`, {
+      method: "POST",
+      body: JSON.stringify({ email, permission }),
     });
   }
 
