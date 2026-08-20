@@ -1,0 +1,269 @@
+/**
+ * Export status and history — the asset that belongs to the sequence you're
+ * cutting, plus everything this machine has sent up. The export options
+ * themselves live in the modal.
+ */
+import { useEffect, useMemo, useState } from "react";
+import { useApp } from "../state";
+import type { Asset } from "../../lib/freeframe/types";
+import { relativeTime } from "../../lib/freeframe/format";
+import type { AssetLink } from "../../lib/freeframe/host";
+import { openLinkInBrowser } from "../../lib/utils/bolt";
+import { Dropdown, MenuAction } from "./Dropdown";
+import {
+  IconClose,
+  IconCopy,
+  IconExternal,
+  IconFilm,
+  IconMarker,
+  IconMore,
+  IconPlus,
+  IconUpload,
+} from "./Icons";
+
+const PHASE_LABEL: Record<string, string> = {
+  queued: "Queued",
+  rendering: "Encoding",
+  uploading: "Uploading",
+  done: "Uploaded",
+  failed: "Failed",
+};
+
+/** `Today` / `Yesterday` / a date, for the history section headers. */
+const dayLabel = (iso: string): string => {
+  const date = new Date(iso);
+  const today = new Date();
+  const days = Math.floor(
+    (new Date(today.toDateString()).getTime() - new Date(date.toDateString()).getTime()) /
+      86400000
+  );
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+export const SequencesView = ({
+  link,
+  onExport,
+  onOpenAsset,
+}: {
+  link: AssetLink | null;
+  onExport: () => void;
+  onOpenAsset: (asset: Asset) => void;
+}) => {
+  const { api, settings, host, exportJobs, dismissExport } = useApp();
+  const [thumbs, setThumbs] = useState<Record<string, Asset>>({});
+  const [error, setError] = useState("");
+
+  const history = settings.exportHistory ?? [];
+  const active = exportJobs.filter((job) => job.phase !== "done");
+
+  /** The asset that belongs to the open sequence, if it has been exported. */
+  const current = useMemo(() => {
+    if (link) return history.find((entry) => entry.assetId === link.assetId) ?? null;
+    if (!host.sequenceName) return null;
+    return history.find((entry) => entry.sequenceName === host.sequenceName) ?? null;
+  }, [link, history, host.sequenceName]);
+
+  // Thumbnails and comment counts aren't in the history, so fetch what's shown.
+  useEffect(() => {
+    let cancelled = false;
+    const ids = [...new Set(history.slice(0, 20).map((entry) => entry.assetId))];
+    ids.forEach(async (id) => {
+      if (thumbs[id]) return;
+      try {
+        const asset = await api.asset(id);
+        if (!cancelled) setThumbs((current) => ({ ...current, [id]: asset }));
+      } catch (e) {
+        // A deleted asset simply keeps its placeholder tile.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, history]);
+
+  const assetUrl = (projectId: string, assetId: string) =>
+    `${(settings.webUrl || settings.serverUrl).replace(/\/+$/, "")}/projects/${projectId}/assets/${assetId}`;
+
+  const open = async (assetId: string) => {
+    try {
+      onOpenAsset(await api.asset(assetId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const Row = ({
+    assetId,
+    name,
+    projectName,
+    projectId,
+    sequenceName,
+  }: {
+    assetId: string;
+    name: string;
+    projectName: string;
+    projectId: string;
+    sequenceName?: string;
+  }) => {
+    const asset = thumbs[assetId];
+    return (
+      <div className="seq-row" onClick={() => open(assetId)}>
+        <span className="seq-thumb">
+          {asset?.thumbnail_url ? (
+            <img src={asset.thumbnail_url} alt="" />
+          ) : (
+            <IconFilm width={18} height={18} />
+          )}
+        </span>
+        <span className="seq-meta">
+          <strong>{name}</strong>
+          <span className="seq-sub">
+            <IconFilm width={11} height={11} />
+            {projectName}
+          </span>
+          {sequenceName && (
+            <span className="seq-sub">
+              <IconMarker width={11} height={11} />
+              {sequenceName}
+            </span>
+          )}
+        </span>
+        <Dropdown triggerClass="icon-btn" trigger={<IconMore width={15} height={15} />}>
+          {(close) => (
+            <>
+              <MenuAction
+                icon={<IconFilm width={14} height={14} />}
+                label="Open in review"
+                onSelect={() => {
+                  close();
+                  open(assetId);
+                }}
+              />
+              <MenuAction
+                icon={<IconExternal width={14} height={14} />}
+                label="Open in browser"
+                onSelect={() => {
+                  close();
+                  openLinkInBrowser(assetUrl(projectId, assetId));
+                }}
+              />
+              <MenuAction
+                icon={<IconCopy width={14} height={14} />}
+                label="Copy Asset URL"
+                onSelect={() => {
+                  close();
+                  navigator.clipboard?.writeText(assetUrl(projectId, assetId));
+                }}
+              />
+            </>
+          )}
+        </Dropdown>
+      </div>
+    );
+  };
+
+  const grouped = useMemo(() => {
+    const groups: { label: string; entries: typeof history }[] = [];
+    history.forEach((entry) => {
+      const label = dayLabel(entry.uploadedAt);
+      const last = groups[groups.length - 1];
+      if (last && last.label === label) last.entries.push(entry);
+      else groups.push({ label, entries: [entry] });
+    });
+    return groups;
+  }, [history]);
+
+  return (
+    <div className="sequences">
+      <div className="seq-head">
+        <h2>Current Sequence Asset</h2>
+        <button className="primary icon-btn" onClick={onExport} title="Export sequence">
+          <IconPlus width={15} height={15} />
+        </button>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+
+      {/* One surface: the row and its status strip light up together. */}
+      <div
+        className={`seq-card${!active.length && current ? " clickable" : ""}`}
+        onClick={() => !active.length && current && open(current.assetId)}
+      >
+        {active.length > 0 ? (
+          active.map((job) => (
+            <div key={job.id}>
+              <div className="seq-row static">
+                <span className="seq-thumb spinner" />
+                <span className="seq-meta">
+                  <strong>{job.name}</strong>
+                  <span className="seq-sub">{job.projectName}</span>
+                  <span className="seq-sub">
+                    <span className="render-dot" />
+                    {job.sequenceName}
+                  </span>
+                </span>
+              </div>
+              <div className={`seq-status${job.phase === "failed" ? " failed" : ""}`}>
+                <span className="seq-bar" style={{ width: `${job.progress}%` }} />
+                <span className="seq-status-text">
+                  <IconUpload width={12} height={12} />
+                  {PHASE_LABEL[job.phase]}
+                  {job.phase === "rendering" || job.phase === "uploading"
+                    ? ` ${job.progress}%`
+                    : ""}
+                  {job.error ? ` — ${job.error}` : ""}
+                  <button className="text-btn" onClick={() => dismissExport(job.id)}>
+                    <IconClose width={12} height={12} />
+                    Dismiss
+                  </button>
+                </span>
+              </div>
+            </div>
+          ))
+        ) : current ? (
+          <>
+            <Row
+              assetId={current.assetId}
+              name={current.name}
+              projectId={current.projectId}
+              projectName={current.projectName}
+              sequenceName={current.sequenceName}
+            />
+            <div className="seq-status">
+              <span className="seq-status-text">
+                Uploaded {relativeTime(current.uploadedAt)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="seq-empty">
+            {host.ok
+              ? "Current sequence not yet exported"
+              : "No sequence open in Premiere"}
+          </div>
+        )}
+      </div>
+
+      <h2>All Sequence Assets</h2>
+
+      {!grouped.length && <p className="muted empty">No linked sequence assets</p>}
+
+      {grouped.map((group) => (
+        <div key={group.label} className="seq-group">
+          <span className="seq-day">{group.label}</span>
+          {group.entries.map((entry) => (
+            <Row
+              key={`${entry.assetId}-${entry.uploadedAt}`}
+              assetId={entry.assetId}
+              name={entry.name}
+              projectId={entry.projectId}
+              projectName={entry.projectName}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+};

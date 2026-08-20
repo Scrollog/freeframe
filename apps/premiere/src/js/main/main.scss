@@ -1,0 +1,2119 @@
+@use "../variables.scss" as *;
+
+$ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background-color: $bg-page;
+}
+
+.muted {
+  color: $text-secondary;
+}
+
+.small {
+  font-size: 11px;
+}
+
+.center {
+  text-align: center;
+  margin-top: 3rem;
+}
+
+.empty {
+  padding: 16px 4px;
+  text-align: center;
+  color: $text-tertiary;
+}
+
+.error {
+  color: $error;
+  margin: 6px 0;
+  animation: rise 0.2s $ease;
+}
+
+.notice {
+  color: $success;
+  margin: 6px 0;
+  animation: rise 0.2s $ease;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+
+  > * {
+    min-width: 0;
+  }
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: $text-secondary;
+
+  input {
+    width: auto;
+    accent-color: $accent;
+  }
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background-color 0.15s $ease, border-color 0.15s $ease,
+    color 0.15s $ease, transform 0.12s $ease, opacity 0.15s $ease,
+    box-shadow 0.18s $ease;
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  svg {
+    flex: none;
+  }
+}
+
+/* Square, chrome-less button for toolbar glyphs. */
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex: none;
+  background: transparent;
+  border-color: transparent;
+  color: $text-secondary;
+  border-radius: $radius-md;
+
+  &:hover:not(:disabled) {
+    background-color: $bg-hover;
+    color: $text-primary;
+  }
+
+  &.on {
+    background-color: $bg-hover;
+    color: $text-primary;
+  }
+
+  &.accented {
+    color: $accent;
+
+    &:hover:not(:disabled) {
+      color: $accent-hover;
+      background-color: $accent-muted;
+    }
+  }
+}
+
+/* Inline label button with no chrome until hover. */
+.text-btn {
+  background: transparent;
+  border-color: transparent;
+  color: $text-secondary;
+  padding: 2px 6px;
+  font-size: 11px;
+
+  &:hover:not(:disabled) {
+    background-color: $bg-hover;
+    color: $text-primary;
+  }
+}
+
+/* Search input with a leading glyph. */
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+
+  > svg {
+    position: absolute;
+    left: 8px;
+    color: $text-secondary;
+    pointer-events: none;
+  }
+
+  input {
+    padding-left: 28px;
+  }
+}
+
+// -- login --------------------------------------------------------------------
+
+.login {
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: rise 0.25s $ease;
+
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: $text-primary;
+    letter-spacing: -0.3px;
+  }
+
+  p {
+    margin: 0 0 8px;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: $text-secondary;
+    font-size: 11px;
+  }
+}
+
+// -- chrome -------------------------------------------------------------------
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  background: $bg-secondary;
+  border-bottom: 1px solid $border-secondary;
+  flex: none;
+
+  button {
+    flex: 1;
+    background: transparent;
+    border-color: transparent;
+    color: $text-secondary;
+    font-size: 11px;
+
+    &.icon-only {
+      flex: none;
+      width: 30px;
+      padding: 0;
+    }
+
+    &:hover:not(:disabled) {
+      background-color: $bg-tertiary;
+      color: $text-primary;
+    }
+
+    &.on {
+      background-color: $bg-elevated;
+      color: $text-primary;
+    }
+  }
+}
+
+.content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  animation: fade 0.2s $ease;
+}
+
+// -- dropdown menus -----------------------------------------------------------
+
+.dropdown {
+  position: relative;
+  flex: none;
+}
+
+.menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 210px;
+  padding: 6px;
+  background: $bg-elevated;
+  border: 1px solid $border-primary;
+  border-radius: $radius-lg;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.6);
+  animation: menu-in 0.14s $ease;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Hairline between groups of menu actions. */
+.menu-rule {
+  height: 1px;
+  margin: 5px 6px;
+  background: $border-secondary;
+}
+
+.card-rename {
+  padding: 2px 5px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.menu-title {
+  color: $text-tertiary;
+  font-size: 11px;
+  padding: 4px 8px 6px;
+}
+
+.menu-sep {
+  color: $text-tertiary;
+  font-size: 11px;
+  padding: 8px 8px 4px;
+  margin-top: 4px;
+  border-top: 1px solid $border-secondary;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border-color: transparent;
+  padding: 6px 8px;
+  border-radius: $radius-md;
+  color: $text-primary;
+
+  &:hover:not(:disabled) {
+    background-color: $bg-hover;
+  }
+
+  &.danger {
+    color: $error;
+
+    .menu-icon {
+      color: $error;
+    }
+
+    &:hover:not(:disabled) {
+      background-color: rgba(248, 113, 113, 0.12);
+    }
+  }
+
+  .menu-icon {
+    color: $text-secondary;
+    display: flex;
+  }
+
+  .menu-label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    overflow: hidden;
+
+    em {
+      font-style: normal;
+      font-size: 10px;
+      color: $text-tertiary;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .menu-tick {
+    color: $accent;
+    display: flex;
+  }
+
+  .menu-box {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border: 1px solid $border-primary;
+    border-radius: $radius-sm;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    transition: background-color 0.15s $ease, border-color 0.15s $ease;
+
+    &.on {
+      background: $accent;
+      border-color: $accent;
+      color: #fff;
+    }
+  }
+}
+
+/* Non-clickable menu row that hosts a control. */
+.menu-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  color: $text-secondary;
+  font-size: 11px;
+
+  input {
+    width: 64px;
+    margin-left: auto;
+    padding: 3px 6px;
+  }
+}
+
+.emoji-menu {
+  min-width: 0;
+  padding: 8px;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 24px);
+  gap: 2px;
+}
+
+.emoji {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  background: transparent;
+  border-color: transparent;
+
+  &:hover {
+    background: $bg-hover;
+    transform: scale(1.15);
+  }
+}
+
+.menu-foot {
+  width: 100%;
+  margin-top: 6px;
+  background: $bg-tertiary;
+  border-color: transparent;
+  color: $text-primary;
+}
+
+// -- navigation bar -----------------------------------------------------------
+
+.navbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 3px 4px;
+  background: $bg-secondary;
+  border: 1px solid $border-secondary;
+  border-radius: $radius-md;
+  min-width: 0;
+
+  .crumbs {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .crumb-slot {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .sep {
+    color: $text-tertiary;
+    padding: 0 2px;
+  }
+
+  .crumb {
+    background: transparent;
+    border-color: transparent;
+    padding: 2px 5px;
+    color: $text-secondary;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+
+    &:hover:not(:disabled) {
+      color: $text-primary;
+      background: $bg-tertiary;
+    }
+
+    &:disabled {
+      opacity: 1;
+      color: $text-primary;
+    }
+  }
+
+  .rename {
+    flex: 1;
+    padding: 3px 7px;
+  }
+
+  .version {
+    width: auto;
+    padding: 3px 20px 3px 8px;
+    background-color: transparent;
+    border-color: transparent;
+    font-size: 11px;
+
+    &:hover {
+      background-color: $bg-tertiary;
+    }
+  }
+}
+
+/* Asset name that opens the file menu. */
+.name-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  background: transparent;
+  border-color: transparent;
+  color: $text-primary;
+  font-weight: 500;
+  padding: 3px 6px;
+  min-width: 0;
+
+  .name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  svg {
+    color: $text-secondary;
+  }
+
+  &:hover:not(:disabled),
+  &.on {
+    background-color: $bg-tertiary;
+    border-color: transparent;
+  }
+}
+
+// -- confirm dialog -----------------------------------------------------------
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.6);
+  animation: fade 0.15s $ease;
+}
+
+.dialog.prompt {
+  text-align: left;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 14px;
+    color: $text-secondary;
+    font-size: 11px;
+  }
+
+  h3 {
+    margin-top: 0;
+  }
+}
+
+.dialog {
+  width: 100%;
+  max-width: 300px;
+  padding: 18px 18px 14px;
+  text-align: center;
+  background: $bg-elevated;
+  border: 1px solid $border-primary;
+  border-radius: $radius-xl;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65);
+  animation: rise 0.18s $ease;
+
+  h3 {
+    margin: 12px 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  p {
+    margin: 0 0 16px;
+    color: $text-secondary;
+    line-height: 1.5;
+  }
+}
+
+.dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: $warning;
+  background: rgba(251, 191, 36, 0.12);
+
+  &.danger {
+    color: $error;
+    background: rgba(248, 113, 113, 0.12);
+  }
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+
+  button {
+    flex: 1;
+    justify-content: center;
+    padding: 7px 12px;
+
+    &.danger {
+      background: $error;
+      border-color: $error;
+      color: #2a0b0b;
+      font-weight: 500;
+
+      &:hover:not(:disabled) {
+        background: $error-hover;
+        border-color: $error-hover;
+      }
+    }
+  }
+}
+
+// -- browse (cards) -----------------------------------------------------------
+
+.browse {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Appearance / Sorted by strip, mirroring the web toolbar. */
+.view-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-height: 28px;
+
+  .field input {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+}
+
+.bar-btn {
+  background: transparent;
+  border-color: transparent;
+  color: $text-secondary;
+  padding: 3px 6px;
+  gap: 6px;
+
+  strong {
+    color: $text-primary;
+    font-weight: 600;
+  }
+
+  &:hover:not(:disabled),
+  &.on {
+    background: $bg-tertiary;
+    border-color: transparent;
+    color: $text-primary;
+  }
+}
+
+.bar-sep {
+  width: 1px;
+  height: 14px;
+  background: $border-primary;
+  margin: 0 4px;
+}
+
+.folder-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: none;
+}
+
+.folder-chip {
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 11px;
+  background: $bg-secondary;
+  color: $text-secondary;
+
+  em {
+    font-style: normal;
+    color: $text-tertiary;
+  }
+
+  &:hover {
+    background: $bg-hover;
+    color: $text-primary;
+  }
+}
+
+.card-grid {
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  align-content: start;
+  padding-bottom: 4px;
+  min-height: 0;
+
+  // `min()` keeps a single card from overflowing a very narrow panel while
+  // letting the tiles grow with the panel everywhere else.
+  &.projects {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr));
+  }
+
+  &.assets {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  }
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  cursor: pointer;
+  background: $bg-elevated;
+  border: 1px solid $border-secondary;
+  border-radius: $radius-lg;
+  text-align: left;
+  animation: rise 0.2s $ease backwards;
+
+  @for $i from 1 through 12 {
+    &:nth-child(#{$i}) {
+      animation-delay: #{$i * 20}ms;
+    }
+  }
+
+  &:hover:not(:disabled) {
+    background: $bg-hover;
+    border-color: $border-primary;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+
+    .card-title {
+      color: #fff;
+    }
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.99);
+  }
+
+  /* Thumbnail sits flush with the card edges, like the web grid. */
+  .poster {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #000;
+    background-size: cover;
+    background-position: center;
+    border-bottom: 1px solid $border-secondary;
+    // Clipped here rather than on the card, so the card menu can overflow.
+    border-radius: ($radius-lg - 1px) ($radius-lg - 1px) 0 0;
+    overflow: hidden;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+  }
+
+  /* Project tiles carry the name over the artwork, so the bottom gets a scrim
+     to keep it readable on busy or light posters. */
+  .poster-scrim {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 52%;
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.45) 42%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+
+  .poster-name {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .poster-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: $text-tertiary;
+  }
+
+  /* Badges float over the bottom of the thumbnail. */
+  .badge {
+    position: absolute;
+    bottom: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-style: normal;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: $font-mono;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.75);
+    border-radius: $radius-md;
+    padding: 3px 8px;
+
+    &.time {
+      right: 8px;
+    }
+
+    &.count {
+      left: 8px;
+    }
+  }
+
+  .card-foot {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    overflow: hidden;
+    text-align: left;
+    padding: 9px 34px 10px 10px;
+  }
+
+  .card-title {
+    max-width: 100%;
+    color: $text-primary;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 0.15s $ease;
+  }
+
+  .card-sub {
+    max-width: 100%;
+    color: $text-secondary;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.card-menu-slot {
+  position: absolute;
+  right: 6px;
+  bottom: 8px;
+}
+
+.card-menu {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: $text-secondary;
+  opacity: 0;
+  transition: opacity 0.15s $ease, background-color 0.15s $ease,
+    color 0.15s $ease;
+
+  &:hover,
+  &.on {
+    background: $bg-hover;
+    color: $text-primary;
+  }
+
+  &.on {
+    opacity: 1;
+  }
+}
+
+.card:hover .card-menu,
+.card:focus-within .card-menu {
+  opacity: 1;
+}
+
+.new-card {
+  background: $bg-secondary;
+  border: 1px dashed $border-primary;
+  color: $text-secondary;
+
+  .new-poster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border-bottom-color: transparent;
+  }
+
+  .new-plus {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: $bg-elevated;
+    transition: background-color 0.15s $ease, color 0.15s $ease;
+  }
+
+  .card-title {
+    color: $text-secondary;
+    text-align: center;
+    width: 100%;
+  }
+
+  &:hover:not(:disabled) {
+    background: $bg-tertiary;
+    border-style: solid;
+    box-shadow: none;
+
+    .new-plus {
+      background: $bg-hover;
+      color: $text-primary;
+    }
+  }
+}
+
+// -- review -------------------------------------------------------------------
+
+.asset-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.review-main {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  gap: 6px;
+}
+
+/* Wide panels put the thread beside the video, like the web viewer. The class
+   comes from a ResizeObserver so the splitter measures the same box. */
+.review.wide {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+
+  .review-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    // The picture and its controls ride in the middle of the column rather
+    // than hugging the top, which left a wide empty gap underneath.
+    justify-content: center;
+  }
+
+  .review-side {
+    min-width: 0;
+    padding-left: 10px;
+  }
+}
+
+.splitter {
+  flex: none;
+  width: 7px;
+  margin: 0 1px;
+  cursor: col-resize;
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 1px;
+    background: $border-secondary;
+    transition: background-color 0.15s $ease, box-shadow 0.15s $ease;
+  }
+
+  &:hover::after,
+  &:active::after {
+    background: $accent;
+    box-shadow: 0 0 0 1px $accent-muted;
+  }
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+
+  .side-title {
+    flex: 1;
+    color: $text-primary;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    em {
+      font-style: normal;
+      font-weight: 400;
+      color: $text-tertiary;
+      margin-left: 4px;
+    }
+  }
+
+  .stepper {
+    display: flex;
+    gap: 1px;
+  }
+}
+
+// -- player -------------------------------------------------------------------
+
+.player {
+  animation: fade 0.25s $ease;
+
+  .stage {
+    position: relative;
+    background: #000;
+    border-radius: $radius-lg;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      cursor: pointer;
+    }
+  }
+
+  .annotation-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    overflow: hidden;
+    pointer-events: none;
+    animation: fade 0.15s $ease;
+  }
+
+  .stage-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: $text-secondary;
+    background: rgba(0, 0, 0, 0.55);
+    text-align: center;
+    padding: 12px;
+    animation: fade 0.2s $ease;
+
+    &.error {
+      color: $error;
+    }
+  }
+
+  .scrub {
+    position: relative;
+    // Tall enough to grab comfortably; the visible track stays thin.
+    height: 22px;
+    margin-top: 2px;
+    cursor: pointer;
+    user-select: none;
+
+    .scrub-track {
+      position: absolute;
+      top: 9px;
+      left: 0;
+      right: 0;
+      height: 4px;
+      border-radius: 2px;
+      background: $bg-tertiary;
+      overflow: hidden;
+      transition: height 0.12s $ease, top 0.12s $ease;
+    }
+
+    .scrub-fill {
+      height: 100%;
+      background: $accent;
+      transition: width 0.1s linear;
+    }
+
+    .playhead {
+      position: absolute;
+      top: 5px;
+      width: 2px;
+      height: 12px;
+      margin-left: -1px;
+      background: #fff;
+      border-radius: 1px;
+      transition: left 0.1s linear;
+      pointer-events: none;
+    }
+
+    .knob {
+      position: absolute;
+      top: 3px;
+      left: 1px;
+      width: 12px;
+      height: 12px;
+      margin-left: -6px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+      transform: scale(0);
+      transition: transform 0.14s $ease;
+    }
+
+    &:hover,
+    &.dragging {
+      .scrub-track {
+        height: 6px;
+        top: 8px;
+      }
+
+      .knob {
+        transform: scale(1);
+      }
+    }
+
+    &.dragging {
+      cursor: grabbing;
+
+      .scrub-fill,
+      .playhead {
+        transition: none;
+      }
+    }
+
+    .pip {
+      position: absolute;
+      top: 7px;
+      width: 8px;
+      height: 8px;
+      margin-left: -4px;
+      padding: 0;
+      border-radius: 50%;
+      background: $warning;
+      border: 1px solid rgba(0, 0, 0, 0.7);
+      transition: transform 0.15s $ease, background-color 0.15s $ease;
+
+      &:hover {
+        transform: scale(1.5);
+      }
+
+      &.done {
+        background: $success;
+      }
+    }
+
+    /* YouTube-style hover thumbnail, fed by a second muted video element. */
+    .scrub-preview {
+      position: absolute;
+      bottom: 22px;
+      transform: translateX(-50%);
+      z-index: 15;
+      padding: 3px;
+      background: $bg-elevated;
+      border: 1px solid $border-primary;
+      border-radius: $radius-md;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+      pointer-events: none;
+      animation: fade 0.12s $ease;
+
+      video {
+        display: block;
+        width: 160px;
+        height: 90px;
+        object-fit: contain;
+        background: #000;
+        border-radius: $radius-sm;
+      }
+
+      span {
+        display: block;
+        margin-top: 3px;
+        text-align: center;
+        font-family: $font-mono;
+        font-size: 11px;
+        color: $text-primary;
+      }
+    }
+  }
+
+  .player-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 2px 0;
+
+    .play {
+      width: 30px;
+      height: 30px;
+      color: $text-primary;
+    }
+
+    .bar-gap {
+      width: 10px;
+      flex: none;
+    }
+
+    .speed {
+      font-family: $font-mono;
+      min-width: 34px;
+      padding: 4px 6px;
+    }
+
+    /* The slider stays collapsed until the volume control is touched. */
+    .volume {
+      display: flex;
+      align-items: center;
+
+      &:hover .volume-slider,
+      .volume-slider:focus {
+        width: 62px;
+        opacity: 1;
+        margin-left: 4px;
+      }
+    }
+
+    .volume-slider {
+      width: 0;
+      opacity: 0;
+      margin-left: 0;
+      padding: 0;
+      height: 3px;
+      appearance: none;
+      background: $bg-hover;
+      border: none;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: width 0.18s $ease, opacity 0.18s $ease, margin-left 0.18s $ease;
+
+      &::-webkit-slider-thumb {
+        appearance: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: $text-primary;
+        cursor: pointer;
+      }
+    }
+
+    /* Boxed readout that opens the display-format menu. */
+    .tc-box {
+      margin-left: auto;
+      gap: 7px;
+      padding: 4px 9px;
+      border-radius: $radius-md;
+      font-family: $font-mono;
+      font-size: 12px;
+      color: $text-primary;
+      background: $bg-secondary;
+      border: 1px solid $border-primary;
+
+      svg {
+        color: $text-secondary;
+      }
+
+      &:hover:not(:disabled),
+      &.on {
+        background: $bg-tertiary;
+      }
+    }
+  }
+}
+
+// -- comments -----------------------------------------------------------------
+
+.comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.comment {
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: $radius-md;
+  padding: 7px 8px;
+  cursor: pointer;
+  animation: rise 0.18s $ease backwards;
+  transition: border-color 0.18s $ease, background-color 0.18s $ease,
+    opacity 0.25s $ease;
+
+  &:hover {
+    background-color: $bg-secondary;
+    border-color: $border-secondary;
+  }
+
+  &.active {
+    background-color: $bg-tertiary;
+    border-color: $accent;
+  }
+
+  &.resolved {
+    opacity: 0.5;
+
+    .body {
+      text-decoration: line-through;
+      text-decoration-color: rgba(234, 234, 237, 0.3);
+    }
+  }
+
+  .comment-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .avatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: $bg-hover;
+    color: $text-primary;
+    font-size: 9px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+
+  .author {
+    color: $text-primary;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .when {
+    color: $text-tertiary;
+    font-size: 11px;
+    flex: 1;
+  }
+
+  .has-annotation {
+    color: $accent;
+    display: flex;
+    flex: none;
+  }
+
+  .index {
+    color: $text-tertiary;
+    font-size: 11px;
+    font-family: $font-mono;
+  }
+
+  .done-box {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    padding: 0;
+    border-radius: 50%;
+    border: 1.5px solid $border-primary;
+    background: transparent;
+    color: transparent;
+
+    &:hover {
+      border-color: $success;
+      color: rgba(234, 234, 237, 0.35);
+    }
+
+    &.on {
+      background: $success;
+      border-color: $success;
+      color: #06281c;
+
+      svg {
+        animation: pop 0.25s $ease;
+      }
+    }
+  }
+
+  .body {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: $text-primary;
+  }
+
+  .reply {
+    margin: 4px 0 0 10px;
+    padding-left: 8px;
+    border-left: 1px solid $border-secondary;
+    white-space: pre-wrap;
+    color: $text-secondary;
+
+    strong {
+      color: $text-primary;
+      font-weight: 500;
+    }
+  }
+
+  .reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .reaction {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-family: $font-mono;
+    background: $bg-tertiary;
+    border-color: transparent;
+    color: $text-secondary;
+
+    span {
+      font-family: $font-sans;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    &:hover {
+      background: $bg-hover;
+      color: $text-primary;
+    }
+
+    &.on {
+      background: $accent-muted;
+      border-color: $accent;
+      color: $text-primary;
+    }
+  }
+
+  /* Revealed with opacity alone: clipping this row with overflow/max-height
+     also clipped the reaction picker that opens out of it. */
+  .comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-top: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s $ease;
+  }
+
+  &:hover .comment-actions,
+  &.active .comment-actions,
+  &:focus-within .comment-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .reply-box {
+    display: flex;
+    gap: 4px;
+    margin-top: 5px;
+    align-items: flex-end;
+    animation: rise 0.18s $ease;
+  }
+}
+
+.tc {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: $warning;
+  background: rgba(251, 191, 36, 0.12);
+  padding: 0 5px;
+  border-radius: $radius-sm;
+  margin-right: 5px;
+  flex: none;
+}
+
+.auto-textarea {
+  resize: none;
+  overflow-y: hidden;
+  min-height: 28px;
+  line-height: 1.4;
+  padding: 6px 8px;
+}
+
+.composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  flex: none;
+  padding-top: 7px;
+  border-top: 1px solid $border-secondary;
+
+  .tc {
+    margin-bottom: 6px;
+  }
+
+  button.primary {
+    height: 28px;
+    padding: 0 10px;
+    flex: none;
+  }
+}
+
+// -- export / settings --------------------------------------------------------
+
+.export-view {
+  width: 100%;
+  max-width: 360px;
+  max-height: 86vh;
+  padding: 16px;
+  background: $bg-elevated;
+  border: 1px solid $border-primary;
+  border-radius: $radius-xl;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65);
+}
+
+.export-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.dropzone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 30px 20px;
+  border: 1px dashed $border-primary;
+  border-radius: $radius-xl;
+  color: $text-tertiary;
+  animation: fade 0.2s $ease;
+
+  p {
+    margin: 0;
+    color: $text-secondary;
+  }
+}
+
+.export-view,
+.settings-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  animation: rise 0.2s $ease;
+
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  // Stacked label-over-field, except for rows that lay themselves out.
+  label:not(.switch-row):not(.menu-field) {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: $text-secondary;
+    font-size: 11px;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+// -- sequences (export status + history) --------------------------------------
+
+.sequences {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  animation: rise 0.2s $ease;
+
+  h2 {
+    margin: 6px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: $text-primary;
+  }
+}
+
+.seq-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  .primary.icon-btn {
+    background: $accent;
+    border-color: $accent;
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      background: $accent-hover;
+    }
+  }
+}
+
+.seq-card {
+  background: $bg-sunken;
+  border: 1px solid $border-secondary;
+  border-radius: $radius-lg;
+  overflow: hidden;
+  transition: background-color 0.15s $ease, border-color 0.15s $ease;
+
+  &.clickable {
+    cursor: pointer;
+
+    &:hover {
+      background: $bg-tertiary;
+      border-color: $border-primary;
+    }
+
+    // The row no longer highlights on its own — the whole card does.
+    .seq-row:hover {
+      background: transparent;
+    }
+  }
+}
+
+.seq-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: $text-tertiary;
+}
+
+.seq-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.seq-day {
+  color: $text-tertiary;
+  font-size: 11px;
+  padding: 6px 2px 2px;
+}
+
+.seq-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  cursor: pointer;
+  border-radius: $radius-md;
+  transition: background-color 0.15s $ease;
+
+  &:hover {
+    background: $bg-tertiary;
+  }
+
+  &.static {
+    cursor: default;
+
+    &:hover {
+      background: transparent;
+    }
+  }
+
+  .seq-thumb {
+    width: 64px;
+    height: 40px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: $radius-sm;
+    background: $bg-primary;
+    color: $text-tertiary;
+    overflow: hidden;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    &.spinner::after {
+      content: "";
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid $border-primary;
+      border-top-color: $accent;
+      animation: spin 0.8s linear infinite;
+    }
+  }
+
+  .seq-meta {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+
+    strong {
+      color: $text-primary;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .seq-sub {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: $text-secondary;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    svg {
+      color: $text-tertiary;
+    }
+  }
+}
+
+.render-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: $accent;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+.seq-status {
+  position: relative;
+  padding: 7px 10px;
+  border-top: 1px solid $border-secondary;
+  background: transparent;
+  overflow: hidden;
+
+  &.failed .seq-status-text {
+    color: $error;
+  }
+
+  .seq-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: $accent-muted;
+    transition: width 0.25s $ease;
+  }
+
+  .seq-status-text {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: $text-secondary;
+    font-size: 11px;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tab-badge {
+  font-style: normal;
+  font-size: 10px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: $accent;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// -- export form --------------------------------------------------------------
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  .form-label {
+    flex: 0 0 40%;
+    color: $text-primary;
+  }
+
+  input,
+  .dropdown {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.name-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+
+  .version-badge {
+    position: absolute;
+    right: 8px;
+    font-style: normal;
+    font-family: $font-mono;
+    font-size: 11px;
+    color: $text-secondary;
+    background: $bg-hover;
+    border-radius: $radius-sm;
+    padding: 1px 6px;
+  }
+
+  input:disabled {
+    padding-right: 42px;
+  }
+}
+
+/* Field-shaped trigger for the export dropdowns and the location picker. */
+.form-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: space-between;
+  background: $bg-tertiary;
+  border: 1px solid $border-primary;
+  padding: 6px 9px;
+  color: $text-primary;
+
+  .control-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  svg {
+    color: $text-secondary;
+  }
+
+  &:hover:not(:disabled),
+  &.on {
+    background: $bg-hover;
+  }
+}
+
+.switch-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+
+  &.off {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .switch-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: $text-primary;
+  }
+
+  .switch-hint {
+    display: flex;
+    color: $text-tertiary;
+    cursor: help;
+  }
+}
+
+.switch {
+  width: 34px;
+  height: 19px;
+  flex: none;
+  padding: 0;
+  border-radius: 999px;
+  background: $bg-hover;
+  border: 1px solid $border-primary;
+  position: relative;
+
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: $text-secondary;
+    transition: transform 0.16s $ease, background-color 0.16s $ease;
+  }
+
+  &.on {
+    background: $accent;
+    border-color: $accent;
+
+    .knob {
+      background: #fff;
+      transform: translateX(15px);
+    }
+  }
+}
+
+.export-meta {
+  color: $text-tertiary;
+  font-size: 11px;
+  // Full-bleed rule: the divider runs edge to edge, past the modal's padding.
+  margin: 4px -16px 0;
+  padding: 12px 16px 0;
+  border-top: 1px solid $border-primary;
+}
+
+.export-actions {
+  margin-top: 2px;
+}
+
+// -- location picker ----------------------------------------------------------
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 330px;
+  max-height: 80vh;
+  padding: 10px;
+  gap: 8px;
+  background: $bg-elevated;
+  border: 1px solid $border-primary;
+  border-radius: $radius-xl;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65);
+  animation: rise 0.18s $ease;
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.picker-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border-color: transparent;
+  color: $text-primary;
+
+  &:hover:not(:disabled) {
+    background: $bg-hover;
+  }
+
+  &.on {
+    background: $bg-hover;
+  }
+
+  .swatch {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    border-radius: $radius-sm;
+    background-size: cover;
+    background-position: center;
+  }
+
+  .picker-name {
+    flex: 1;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .picker-chevron {
+    color: $text-tertiary;
+  }
+
+  svg {
+    color: $text-secondary;
+  }
+}
+
+.progress {
+  position: relative;
+  height: 20px;
+  background: $bg-tertiary;
+  border-radius: $radius-md;
+  overflow: hidden;
+
+  .bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: $accent;
+    transition: width 0.25s $ease;
+  }
+
+  span {
+    position: relative;
+    display: block;
+    text-align: center;
+    line-height: 20px;
+    color: #fff;
+  }
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 12px;
+  margin: 0;
+
+  dt {
+    color: $text-tertiary;
+  }
+
+  dd {
+    margin: 0;
+    color: $text-primary;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
