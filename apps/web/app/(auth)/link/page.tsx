@@ -9,7 +9,7 @@
  * afterwards and it completes on its own.
  */
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { getAccessToken } from '@/lib/auth'
@@ -31,7 +31,7 @@ function isLoopback(target: string): boolean {
   }
 }
 
-export default function LinkPage() {
+function LinkHandoff() {
   const router = useRouter()
   const params = useSearchParams()
   const [phase, setPhase] = useState<Phase>('working')
@@ -125,5 +125,26 @@ export default function LinkPage() {
         <p className="text-2xs text-text-tertiary">You can close this tab.</p>
       )}
     </div>
+  )
+}
+
+/**
+ * `useSearchParams` opts a route out of static prerendering, and Next fails
+ * the production build unless the bail-out is contained by a Suspense
+ * boundary. The other pages using it are dynamic routes, so they never hit
+ * this; `/link` is static, so it does.
+ */
+export default function LinkPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-col items-center gap-4 py-2 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
+          <p className="text-sm text-text-secondary">Connecting to Premiere Pro…</p>
+        </div>
+      }
+    >
+      <LinkHandoff />
+    </Suspense>
   )
 }
