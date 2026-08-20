@@ -22,6 +22,7 @@ class Comment(Base):
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("comments.id"), nullable=True, index=True)
     author_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     guest_author_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("guest_users.id"), nullable=True)
+    guest_edit_token_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     timecode_start: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     timecode_end: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)

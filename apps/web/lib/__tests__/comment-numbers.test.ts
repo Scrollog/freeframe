@@ -9,18 +9,18 @@ const comment = (id: string, timecode_start: number | null, created_at: string, 
 })
 
 describe('buildCommentNumbers', () => {
-  it('numbers root threads by timecode, then creation order, regardless of input order', () => {
+  it('numbers root threads from oldest to newest regardless of timecode or input order', () => {
     const numbers = buildCommentNumbers([
-      comment('untimed', null, '2026-01-03T00:00:00Z'),
+      comment('untimed', null, '2026-01-01T00:00:00Z'),
       comment('later', 20, '2026-01-02T00:00:00Z'),
-      comment('first', 10, '2026-01-01T00:00:00Z'),
+      comment('first', 10, '2026-01-03T00:00:00Z'),
       comment('reply', 12, '2026-01-01T00:00:00Z', 'first'),
     ])
 
     expect(Array.from(numbers.entries())).toEqual([
-      ['first', 1],
+      ['untimed', 1],
       ['later', 2],
-      ['untimed', 3],
+      ['first', 3],
     ])
   })
 

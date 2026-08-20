@@ -10,6 +10,7 @@ import React, {
   useState,
 } from "react";
 import { api } from "@/lib/api";
+import { storeGuestCommentToken } from "@/lib/guest-comment-tokens";
 import { useReviewStore } from "@/stores/review-store";
 import type { AssetResponse, AssetVersion, Comment } from "@/types";
 
@@ -333,6 +334,10 @@ export function ReviewProvider({
         });
         if (!res.ok) throw new Error("Failed to post comment");
         comment = await res.json();
+        const guestEditToken = (comment as Comment & { guest_edit_token?: string }).guest_edit_token;
+        if (guestEditToken) {
+          storeGuestCommentToken(shareToken, comment.id, guestEditToken);
+        }
       } else {
         comment = await api.post<Comment>(
           `/assets/${assetId}/comments`,
@@ -344,7 +349,7 @@ export function ReviewProvider({
       }
       return comment;
     },
-    [assetId],
+    [assetId, shareToken, shareSessionParam],
   );
 
   const resolveComment = useCallback(

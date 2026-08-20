@@ -22,8 +22,9 @@ type NumberedComment = {
  * indexed from zero, so a point marker and a range marker would both claim
  * `#1`.
  *
- * Ordering matches the panel's default sort — timecoded ascending, then
- * untimecoded by creation — so the numbers a reviewer already sees stay put.
+ * Ordering is always chronological: the oldest root comment is `#1` and each
+ * later root comment increments the number. This stays independent from the
+ * panel's current visual sort or a comment's timecode.
  *
  * Replies are excluded: they are addressed as replies to their parent, and
  * numbering them would compete with the parent's number.
@@ -31,18 +32,10 @@ type NumberedComment = {
 export function buildCommentNumbers<T extends NumberedComment>(comments: T[]): Map<string, number> {
   const roots = comments.filter((c) => c.parent_id == null)
 
-  const ordered = [...roots].sort((a, b) => {
-    const aTime = a.timecode_start ?? null
-    const bTime = b.timecode_start ?? null
-    if (aTime !== null && bTime !== null && aTime !== bTime) return aTime - bTime
-    if (aTime !== null && bTime === null) return -1
-    if (aTime === null && bTime !== null) return 1
-    // Same timecode, or neither has one: fall back to creation order so the
-    // result is a total order. Without this, two comments on the same frame
-    // could swap numbers between renders.
-    const createdAt = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    return createdAt || a.id.localeCompare(b.id)
-  })
+  const ordered = [...roots].sort((a, b) =>
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    || a.id.localeCompare(b.id),
+  )
 
   return new Map(ordered.map((c, i) => [c.id, i + 1]))
 }

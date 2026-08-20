@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Hls from 'hls.js'
+import { Globe, Lock, X } from 'lucide-react'
 import { cn, formatTimecode } from '@/lib/utils'
 import { buildCommentNumbers } from '@/lib/comment-numbers'
 import { useReviewStore } from '@/stores/review-store'
@@ -152,6 +153,7 @@ interface CommentMarkerProps {
   /** Canonical number shared with the side panel — NOT the marker's array position. */
   commentNumber?: number
   leftPercent: number
+  rightPercent?: number
   authorName: string
   initials: string
   color: string
@@ -166,6 +168,7 @@ function CommentMarker({
   comment,
   commentNumber,
   leftPercent,
+  rightPercent,
   authorName,
   initials,
   color,
@@ -210,21 +213,40 @@ function CommentMarker({
   return (
     <div
       ref={markerRef}
-      className="absolute top-0 -translate-x-1/2 cursor-pointer"
-      style={{ left: `${leftPercent}%` }}
+      className={cn(
+        'absolute top-0 cursor-pointer',
+        rightPercent === undefined && '-translate-x-1/2',
+      )}
+      style={{
+        left: `${leftPercent}%`,
+        width: rightPercent === undefined ? undefined : `${Math.max(0, rightPercent - leftPercent)}%`,
+      }}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
       onClick={handleClick}
     >
+      {rightPercent !== undefined && (
+        <div
+          className={cn(
+            'absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white transition-opacity',
+            isFocused ? 'opacity-100' : 'opacity-90',
+          )}
+        />
+      )}
+
       {/* Avatar dot */}
       <div
         className={cn(
-          'w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-md border-2 transition-transform hover:scale-110',
-          isFocused ? 'border-accent scale-125 ring-2 ring-accent/40' : 'border-bg-primary',
+          'relative flex items-center justify-center overflow-hidden rounded-full font-bold leading-none text-white shadow-md border-2 transition-transform hover:scale-110',
+          rightPercent === undefined ? 'w-5 h-5 text-[9px]' : 'w-5 h-5 -translate-x-1/2 text-[9px]',
+          isFocused ? 'border-accent scale-125' : 'border-bg-primary',
         )}
         style={{ backgroundColor: color }}
       >
-        {initials}
+        {comment.author?.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={comment.author.avatar_url} alt="" className="h-full w-full object-cover" />
+        ) : initials}
       </div>
 
       {/* Tooltip — portaled to document.body to escape all overflow */}
@@ -243,26 +265,34 @@ function CommentMarker({
           <div className="bg-[#1e1e22] border border-white/10 rounded-lg shadow-2xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <div
-                className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold leading-none text-white shrink-0"
                 style={{ backgroundColor: color }}
               >
                 {initials}
               </div>
-              {commentNumber !== undefined && (
-                <span className="text-[10px] font-semibold text-text-tertiary shrink-0">
-                  #{commentNumber}
-                </span>
-              )}
-              <span className="text-xs font-medium text-white truncate">{authorName}</span>
-              {comment.timecode_start !== null && (
-                <span className="ml-auto text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
-                  {formatTimecode(comment.timecode_start)}
-                </span>
-              )}
+              <span className="min-w-0 flex-1 text-xs font-medium text-white truncate">{authorName}</span>
+              <div className="flex items-center gap-1.5 shrink-0 text-text-tertiary">
+                {commentNumber !== undefined && (
+                  <span className="text-[10px] font-semibold">#{commentNumber}</span>
+                )}
+                {comment.visibility === 'internal' ? (
+                  <Lock className="h-3.5 w-3.5 text-amber-400" />
+                ) : (
+                  <Globe className="h-3.5 w-3.5" />
+                )}
+              </div>
             </div>
-            <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
-              {comment.body}
-            </p>
+            <div className="flex items-start gap-2">
+              {comment.timecode_start !== null && (
+                <span className="shrink-0 text-[10px] font-mono text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                  {formatTimecode(comment.timecode_start)}
+                  {comment.timecode_end !== null && ` — ${formatTimecode(comment.timecode_end)}`}
+                </span>
+              )}
+              <p className="min-w-0 text-xs text-text-secondary line-clamp-2 leading-relaxed">
+                {comment.body}
+              </p>
+            </div>
           </div>
           {/* Arrow */}
           <div className="flex justify-center">
@@ -288,10 +318,15 @@ export function ProgressBar({
 }: ProgressBarProps) {
   const trackRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [rangeDragStart, setRangeDragStart] = useState<number | null>(null)
+  const [rangeDragEnd, setRangeDragEnd] = useState<number | null>(null)
+  const [draggingRangeHandle, setDraggingRangeHandle] = useState<'start' | 'end' | null>(null)
   const [hoverTime, setHoverTime] = useState<number | null>(null)
   const [hoverX, setHoverX] = useState(0)
   const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null)
   const focusedCommentId = useReviewStore((s) => s.focusedCommentId)
+  const selectedTimeRange = useReviewStore((s) => s.selectedTimeRange)
+  const setSelectedTimeRange = useReviewStore((s) => s.setSelectedTimeRange)
 
   const { previewImage, seekPreview, clearPreview } = useFramePreview(streamUrl)
 
@@ -332,34 +367,58 @@ export function ProgressBar({
   )
 
   const handleMouseLeave = useCallback(() => {
-    if (!isDragging) {
+    if (!isDragging && !draggingRangeHandle) {
       setHoverTime(null)
       clearPreview()
     }
-  }, [isDragging, clearPreview])
+  }, [isDragging, draggingRangeHandle, clearPreview])
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       e.preventDefault()
+      const time = getTimeFromEvent(e.clientX)
+      if (e.shiftKey) {
+        setRangeDragStart(time)
+        setRangeDragEnd(time)
+        return
+      }
       setIsDragging(true)
-      onSeek(getTimeFromEvent(e.clientX))
+      onSeek(time)
     },
     [getTimeFromEvent, onSeek],
   )
 
   // Global mouse up / move to handle drag outside track
   useEffect(() => {
-    if (!isDragging) return
+    if (!isDragging && rangeDragStart === null && !draggingRangeHandle) return
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      onSeek(getTimeFromEvent(e.clientX))
+      const time = getTimeFromEvent(e.clientX)
+      if (rangeDragStart !== null) setRangeDragEnd(time)
+      else if (draggingRangeHandle && selectedTimeRange) {
+        setSelectedTimeRange(
+          draggingRangeHandle === 'start'
+            ? { start: Math.min(time, selectedTimeRange.end), end: selectedTimeRange.end }
+            : { start: selectedTimeRange.start, end: Math.max(time, selectedTimeRange.start) },
+        )
+      }
+      else onSeek(time)
     }
 
     const handleGlobalMouseUp = (e: MouseEvent) => {
+      const time = getTimeFromEvent(e.clientX)
+      if (rangeDragStart !== null) {
+        const start = Math.min(rangeDragStart, time)
+        const end = Math.max(rangeDragStart, time)
+        setSelectedTimeRange(end - start > 0.05 ? { start, end } : null)
+        setRangeDragStart(null)
+        setRangeDragEnd(null)
+      }
+      setDraggingRangeHandle(null)
       setIsDragging(false)
       setHoverTime(null)
       clearPreview()
-      onSeek(getTimeFromEvent(e.clientX))
+      if (rangeDragStart === null && !draggingRangeHandle) onSeek(time)
     }
 
     window.addEventListener('mousemove', handleGlobalMouseMove)
@@ -368,7 +427,7 @@ export function ProgressBar({
       window.removeEventListener('mousemove', handleGlobalMouseMove)
       window.removeEventListener('mouseup', handleGlobalMouseUp)
     }
-  }, [isDragging, getTimeFromEvent, onSeek, clearPreview])
+  }, [isDragging, rangeDragStart, draggingRangeHandle, selectedTimeRange, getTimeFromEvent, onSeek, clearPreview, setSelectedTimeRange])
 
   // Separate timecoded comments
   // Same helper the side panel uses, so a marker's #N always matches its card's.
@@ -383,6 +442,15 @@ export function ProgressBar({
 
   const playPercent = timeToPercent(currentTime)
   const bufferedPercent = timeToPercent(buffered)
+  const activeRange = rangeDragStart !== null && rangeDragEnd !== null
+    ? { start: Math.min(rangeDragStart, rangeDragEnd), end: Math.max(rangeDragStart, rangeDragEnd) }
+    : selectedTimeRange
+  const hasAreaRange = !!activeRange && activeRange.end - activeRange.start > 0.05
+  const rangeHandleTimes = activeRange
+    ? hasAreaRange
+      ? [activeRange.start, activeRange.end]
+      : [activeRange.start]
+    : []
 
   return (
     <div className={cn('relative flex flex-col w-full group/progress py-1', className)}>
@@ -393,6 +461,7 @@ export function ProgressBar({
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onMouseDown={handleMouseDown}
+        title="Shift + drag to select a comment range"
       >
         {/* Buffered range */}
         <div
@@ -408,7 +477,10 @@ export function ProgressBar({
           return (
             <div
               key={c.id}
-              className="absolute inset-y-0 bg-yellow-400/40 rounded-full pointer-events-none"
+              className={cn(
+                'absolute inset-y-0 rounded-full pointer-events-none',
+                focusedCommentId === c.id ? 'bg-white/35' : 'bg-white/20',
+              )}
               style={{
                 left: `${left}%`,
                 width: `${right - left}%`,
@@ -417,12 +489,25 @@ export function ProgressBar({
           )
         })}
 
+        {/* Pending/selected range for the next comment */}
+        {activeRange && hasAreaRange && (
+          <>
+            <div
+              className="absolute inset-y-0 rounded-sm bg-amber-400/45 pointer-events-none z-[1]"
+              style={{
+                left: `${timeToPercent(activeRange.start)}%`,
+                width: `${Math.max(0.4, timeToPercent(activeRange.end) - timeToPercent(activeRange.start))}%`,
+              }}
+            />
+          </>
+        )}
+
         {/* Playback progress */}
         <div
           className="absolute inset-y-0 left-0 rounded-full"
           style={{
             width: `${playPercent}%`,
-            background: 'linear-gradient(90deg, #6366f1, #818cf8)',
+            background: 'var(--accent)',
           }}
         />
 
@@ -434,8 +519,96 @@ export function ProgressBar({
       </div>
 
       {/* Comment markers row — below the progress bar */}
-      {pointMarkers.length > 0 && (
+      {(pointMarkers.length > 0 || rangeMarkers.length > 0 || activeRange) && (
         <div className="relative w-full h-6 mt-0.5">
+          {activeRange && <>
+            {rangeHandleTimes.map((time, index) => (
+              <button
+                type="button"
+                key={`range-handle-${index}`}
+                disabled={!selectedTimeRange}
+                className={cn(
+                  'absolute top-0 z-[2] h-5 cursor-ew-resize disabled:cursor-default',
+                  hasAreaRange ? 'w-3' : 'w-4',
+                )}
+                style={{
+                  left: `${timeToPercent(time)}%`,
+                  transform: 'translateX(-50%)',
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  if (selectedTimeRange) {
+                    setDraggingRangeHandle(hasAreaRange && index === 0 ? 'start' : 'end')
+                  }
+                }}
+                aria-label={hasAreaRange && index === 0 ? 'Adjust range start' : 'Adjust range end'}
+              >
+                {hasAreaRange ? <>
+                  <span className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-sm bg-white shadow-sm" />
+                  <span
+                    className={cn(
+                      "absolute top-0 h-1.5 w-1.5 border-t-2 border-amber-400",
+                      index === 0 ? "left-0 border-l-2" : "right-0 border-r-2",
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "absolute bottom-0 h-1.5 w-1.5 border-b-2 border-amber-400",
+                      index === 0 ? "left-0 border-l-2" : "right-0 border-r-2",
+                    )}
+                  />
+                </> : <>
+                  <span className="absolute inset-y-0 left-1 w-[3px] rounded-sm bg-white shadow-sm" />
+                  <span className="absolute inset-y-0 right-1 w-[3px] rounded-sm bg-white shadow-sm" />
+                  <span className="absolute left-0 top-0 h-1.5 w-1.5 border-l-2 border-t-2 border-amber-400" />
+                  <span className="absolute bottom-0 left-0 h-1.5 w-1.5 border-b-2 border-l-2 border-amber-400" />
+                  <span className="absolute right-0 top-0 h-1.5 w-1.5 border-r-2 border-t-2 border-amber-400" />
+                  <span className="absolute bottom-0 right-0 h-1.5 w-1.5 border-b-2 border-r-2 border-amber-400" />
+                </>}
+              </button>
+            ))}
+            {selectedTimeRange && (
+              <button
+                type="button"
+                className="absolute top-0.5 z-[2] flex h-4 w-4 items-center justify-center rounded-full bg-text-tertiary text-bg-primary hover:bg-text-secondary"
+                style={{ left: `${timeToPercent(selectedTimeRange.end)}%`, transform: 'translateX(10px)' }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => setSelectedTimeRange(null)}
+                aria-label="Clear selected range"
+                title="Clear selected range"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+              </button>
+            )}
+          </>}
+          {rangeMarkers.map((c) => {
+            if (c.timecode_start === null || c.timecode_end === null) return null
+            const left = timeToPercent(c.timecode_start)
+            const right = timeToPercent(c.timecode_end)
+            const authorName = c.author?.name ?? c.guest_author?.name ?? 'Unknown'
+            const initials = getInitials(authorName)
+            const color = getAvatarColor(authorName)
+            const isHovered = hoveredCommentId === c.id
+
+            return (
+              <CommentMarker
+                key={c.id}
+                comment={c}
+                commentNumber={commentNumbers.get(c.id)}
+                leftPercent={left}
+                rightPercent={right}
+                authorName={authorName}
+                initials={initials}
+                color={color}
+                isHovered={isHovered}
+                isFocused={focusedCommentId === c.id}
+                onHover={() => setHoveredCommentId(c.id)}
+                onLeave={() => setHoveredCommentId(null)}
+                onSeek={onSeek}
+              />
+            )
+          })}
           {pointMarkers.map((c) => {
             if (c.timecode_start === null) return null
             const left = timeToPercent(c.timecode_start)

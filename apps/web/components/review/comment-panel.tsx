@@ -45,6 +45,11 @@ interface CommentPanelProps {
   comments: CommentWithReplies[];
   isLoading?: boolean;
   currentUserId?: string;
+  newCommentIds?: readonly string[];
+  /** Grants deletion without granting edit rights (for project administrators). */
+  canDeleteComment?: (comment: CommentWithReplies) => boolean;
+  canManageComment?: (comment: CommentWithReplies) => boolean;
+  onUpdate?: (commentId: string, body: string) => Promise<void>;
   onResolve: (commentId: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
   onAddReaction: (commentId: string, emoji: string) => Promise<void>;
@@ -164,13 +169,15 @@ function Dropdown({
 // ─── Context menu ────────────────────────────────────────────────────────────
 
 function CommentMenu({
-  isOwn,
+  canEdit,
+  canDelete,
   commentId,
   assetId,
   onEdit,
   onDelete,
 }: {
-  isOwn: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   commentId: string;
   assetId?: string;
   onEdit: () => void;
@@ -178,8 +185,7 @@ function CommentMenu({
 }) {
   const [open, setOpen] = React.useState(false);
 
-  // Only show menu for own comments — others only get emoji reactions
-  if (!isOwn) return null;
+  if (!canEdit && !canDelete) return null;
 
   return (
     <div className="relative">
@@ -195,13 +201,15 @@ function CommentMenu({
         align="right"
         className="w-44"
       >
-        <button
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary hover:bg-bg-tertiary transition-colors"
-          onClick={() => { onEdit(); setOpen(false) }}
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Edit
-        </button>
+        {canEdit && (
+          <button
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary hover:bg-bg-tertiary transition-colors"
+            onClick={() => { onEdit(); setOpen(false) }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
+        )}
         <button
           className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary hover:bg-bg-tertiary transition-colors"
           onClick={() => {
@@ -219,16 +227,18 @@ function CommentMenu({
           <Link2 className="h-3.5 w-3.5" />
           Copy Link
         </button>
-        <button
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-red-400 hover:bg-bg-tertiary transition-colors"
-          onClick={() => {
-            onDelete(commentId);
-            setOpen(false);
-          }}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Delete
-        </button>
+        {canDelete && (
+          <button
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-red-400 hover:bg-bg-tertiary transition-colors"
+            onClick={() => {
+              onDelete(commentId);
+              setOpen(false);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        )}
       </Dropdown>
     </div>
   );
@@ -360,6 +370,10 @@ interface CommentItemProps {
   commentNumber?: number;
   depth?: number;
   currentUserId?: string;
+  newCommentIds?: readonly string[];
+  canDeleteComment?: (comment: CommentWithReplies) => boolean;
+  canManageComment?: (comment: CommentWithReplies) => boolean;
+  onUpdate?: (commentId: string, body: string) => Promise<void>;
   replyingTo?: string | null;
   isFocused?: boolean;
   onResolve: (commentId: string) => Promise<void>;
@@ -378,6 +392,10 @@ function CommentItem({
   commentNumber,
   depth = 0,
   currentUserId,
+  newCommentIds,
+  canDeleteComment,
+  canManageComment,
+  onUpdate,
   replyingTo,
   isFocused,
   onResolve,
@@ -396,7 +414,6 @@ function CommentItem({
   const showAnnotation = onShowAnnotation ?? setActiveAnnotation;
   const setFocusedCommentId = useReviewStore((s) => s.setFocusedCommentId);
   const itemRef = React.useRef<HTMLDivElement>(null);
-  const [showReplies, setShowReplies] = React.useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
   const [resolving, setResolving] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -413,8 +430,12 @@ function CommentItem({
   const authorName =
     comment.author?.name ?? comment.guest_author?.name ?? "Unknown";
   const isOwn = !!(currentUserId && comment.author_id === currentUserId);
+  const isNew = newCommentIds?.includes(comment.id) ?? false;
+  const canEdit = canManageComment?.(comment) ?? isOwn;
+  const canDelete = canDeleteComment?.(comment) ?? canManageComment?.(comment) ?? isOwn;
   const avatarColor = getAvatarColor(authorName);
-  const isReplyingHere = replyingTo === comment.id && depth === 0;
+  const isReplyingHere = replyingTo === comment.id;
+  const hasReplies = (comment.replies?.length ?? 0) > 0;
 
   // Group reactions by emoji
   const reactionGroups = React.useMemo(() => {
@@ -459,7 +480,7 @@ function CommentItem({
       className={cn(
         "group/comment relative transition-colors cursor-pointer",
         depth > 0
-          ? "ml-8 pl-3 border-l-2 border-border"
+          ? ""
           : cn(
               "rounded-lg border px-3",
               isFocused
@@ -480,7 +501,16 @@ function CommentItem({
         );
       }}
     >
-      <div className="flex gap-2.5 py-3">
+      {isNew && (
+        <span
+          className="absolute left-1.5 top-1.5 h-2 w-2 rounded-full bg-blue-500"
+          title="New comment"
+        />
+      )}
+      {depth === 0 && hasReplies && (
+        <span className="pointer-events-none absolute bottom-3 left-7 top-3 z-0 w-px bg-border" />
+      )}
+      <div className="relative z-[1] flex gap-2.5 py-3">
         {/* Colored avatar */}
         <div
           className={cn(
@@ -519,7 +549,7 @@ function CommentItem({
             {comment.timecode_start !== null &&
               comment.timecode_start !== undefined && (
                 <button
-                  className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-mono text-accent hover:bg-accent/25 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-mono text-amber-400 hover:bg-amber-500/25 transition-colors"
                   onClick={() => {
                     seekTo(comment.timecode_start!, true);
                     setFocusedCommentId(comment.id);
@@ -573,9 +603,13 @@ function CommentItem({
                   onClick={async () => {
                     setSaving(true);
                     try {
-                      const { api } = await import('@/lib/api');
-                      await api.patch(`/comments/${comment.id}`, { body: editBody.trim() });
-                      comment.body = editBody.trim();
+                      if (onUpdate) {
+                        await onUpdate(comment.id, editBody.trim());
+                      } else {
+                        const { api } = await import('@/lib/api');
+                        await api.patch(`/comments/${comment.id}`, { body: editBody.trim() });
+                        comment.body = editBody.trim();
+                      }
                       setEditing(false);
                     } catch { /* silent */ }
                     finally { setSaving(false); }
@@ -621,14 +655,12 @@ function CommentItem({
 
           {/* Action row: Reply text + hover icons */}
           <div className="mt-1.5 flex items-center gap-2">
-            {depth === 0 && (
-              <button
-                className="text-[13px] font-medium text-text-tertiary hover:text-text-secondary transition-colors"
-                onClick={() => onReply(comment.id)}
-              >
-                Reply
-              </button>
-            )}
+            <button
+              className="text-[13px] font-medium text-text-tertiary hover:text-text-secondary transition-colors"
+              onClick={() => onReply(comment.id)}
+            >
+              Reply
+            </button>
 
             <div className="ml-auto flex items-center gap-0.5">
               {/* Emoji — hover only */}
@@ -658,7 +690,8 @@ function CommentItem({
               {/* Context menu — hover only */}
               <div className="opacity-0 group-hover/comment:opacity-100 transition-opacity">
                 <CommentMenu
-                  isOwn={isOwn}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
                   commentId={comment.id}
                   assetId={comment.asset_id}
                   onEdit={() => { setEditing(true); setEditBody(comment.body); }}
@@ -701,42 +734,30 @@ function CommentItem({
       </div>
 
       {/* Replies */}
-      {comment.replies && comment.replies.length > 0 && (
-        <div>
-          <button
-            className="flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-secondary transition-colors ml-10 mb-1"
-            onClick={() => setShowReplies((p) => !p)}
-          >
-            {showReplies ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            {comment.replies.length}{" "}
-            {comment.replies.length === 1 ? "reply" : "replies"}
-          </button>
-          {showReplies && (
-            <div>
-              {comment.replies.map((reply) => (
-                <CommentItem
-                  key={reply.id}
-                  comment={reply}
-                  depth={depth + 1}
-                  currentUserId={currentUserId}
-                  replyingTo={replyingTo}
-                  onResolve={onResolve}
-                  onDelete={onDelete}
-                  onAddReaction={onAddReaction}
-                  onRemoveReaction={onRemoveReaction}
-                  onReply={onReply}
-                  onCancelReply={onCancelReply}
-                  onSubmitReply={onSubmitReply}
-                  onSeekToTimecode={onSeekToTimecode}
-                  onShowAnnotation={onShowAnnotation}
-                />
-              ))}
-            </div>
-          )}
+      {hasReplies && (
+        <div className="relative mt-0.5">
+          {comment.replies.map((reply) => (
+            <CommentItem
+              key={reply.id}
+              comment={reply}
+              depth={depth + 1}
+              currentUserId={currentUserId}
+              newCommentIds={newCommentIds}
+              canDeleteComment={canDeleteComment}
+              canManageComment={canManageComment}
+              onUpdate={onUpdate}
+              replyingTo={replyingTo}
+              onResolve={onResolve}
+              onDelete={onDelete}
+              onAddReaction={onAddReaction}
+              onRemoveReaction={onRemoveReaction}
+              onReply={onReply}
+              onCancelReply={onCancelReply}
+              onSubmitReply={onSubmitReply}
+              onSeekToTimecode={onSeekToTimecode}
+              onShowAnnotation={onShowAnnotation}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -772,6 +793,10 @@ export function CommentPanel({
   comments,
   isLoading,
   currentUserId,
+  newCommentIds,
+  canDeleteComment,
+  canManageComment,
+  onUpdate,
   onResolve,
   onDelete,
   onAddReaction,
@@ -1302,6 +1327,10 @@ export function CommentPanel({
                 comment={comment}
                 commentNumber={commentNumbers.get(comment.id)}
                 currentUserId={currentUserId}
+                newCommentIds={newCommentIds}
+                canDeleteComment={canDeleteComment}
+                canManageComment={canManageComment}
+                onUpdate={onUpdate}
                 replyingTo={replyingTo}
                 isFocused={focusedCommentId === comment.id}
                 onResolve={onResolve}

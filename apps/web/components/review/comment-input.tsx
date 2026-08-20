@@ -208,6 +208,7 @@ export function CommentInput({
     drawingTool,
     drawingColor,
     playheadTime: storePlayheadTime,
+    selectedTimeRange,
     timeFormat,
     pendingAnnotation,
     toggleDrawingMode,
@@ -216,6 +217,7 @@ export function CommentInput({
     setDrawingColor,
     setPendingAnnotation,
     setActiveAnnotation,
+    setSelectedTimeRange,
   } = useReviewStore();
   const playheadTime = playheadTimeOverride ?? storePlayheadTime;
 
@@ -306,6 +308,9 @@ export function CommentInput({
   function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setBody(value);
+    if (value.trim() && hasTimecode && !selectedTimeRange) {
+      setSelectedTimeRange({ start: playheadTime, end: playheadTime });
+    }
 
     const cursor = e.target.selectionStart ?? value.length;
     const textBeforeCursor = value.slice(0, cursor);
@@ -395,17 +400,20 @@ export function CommentInput({
       // valid video time and must never be silently dropped), and is
       // force-attached whenever this submit carries a drawing: a drawing is
       // frame-anchored and must never save timecode-less on timed media.
-      const timecodeStart = resolveSubmitTimecode({
+      const timecodeStart = selectedTimeRange?.start ?? resolveSubmitTimecode({
         hasTimecode,
         timecodeAttached,
         hasAnnotation: !!finalAnnotation,
         playheadTime,
       });
+      const timecodeEnd = selectedTimeRange && selectedTimeRange.end - selectedTimeRange.start > 0.05
+        ? selectedTimeRange.end
+        : undefined;
 
       await onSubmit(
         trimmed,
         timecodeStart,
-        undefined,
+        timecodeEnd,
         finalAnnotation,
         replyToId ?? undefined,
         commentVisibility,
@@ -414,6 +422,7 @@ export function CommentInput({
 
       setBody("");
       setMentionUserIds([]);
+      setSelectedTimeRange(null);
       // Drawing-state cleanup touches the SHARED singleton canvas + global store,
       // so gate it on ownership: an inactive compare pane (captureAnnotation false)
       // must NOT clear() the other pane's in-progress drawing or flip the global
@@ -436,7 +445,7 @@ export function CommentInput({
   return (
     <div
       className={cn(
-        "border-t border-border bg-bg-secondary shrink-0",
+        "border-t border-border bg-bg-secondary shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.9)] shrink-0",
         className,
       )}
     >
@@ -456,11 +465,25 @@ export function CommentInput({
       {/* Input area */}
       <div className="px-4 pt-3 pb-2">
         <div className="relative">
-          <div className="flex items-start gap-0 rounded-lg border border-border bg-bg-tertiary focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20">
+          <div className="flex items-start gap-0">
             {/* Inline timecode badge — show when timecode attached (normal mode) or in drawing mode */}
-            {hasTimecode && (timecodeAttached || drawingActive) && (
-              <span className="shrink-0 ml-2.5 mt-[9px] rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[11px] text-amber-400 leading-none select-none">
-                {displayTime(playheadTime)}
+            {hasTimecode && (timecodeAttached || drawingActive || selectedTimeRange) && (
+              <span className="shrink-0 ml-2.5 mt-[9px] inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[11px] text-amber-400 leading-none select-none">
+                {selectedTimeRange
+                  ? selectedTimeRange.end - selectedTimeRange.start > 0.05
+                    ? <>{displayTime(selectedTimeRange.start)} — {displayTime(selectedTimeRange.end)}</>
+                    : displayTime(selectedTimeRange.start)
+                  : displayTime(playheadTime)}
+                {selectedTimeRange && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTimeRange(null)}
+                    className="text-amber-300 hover:text-amber-100"
+                    title="Clear selected range"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
               </span>
             )}
             <textarea

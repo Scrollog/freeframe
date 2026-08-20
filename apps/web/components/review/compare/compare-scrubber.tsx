@@ -125,7 +125,7 @@ function ScrubberCommentMarker({
               {marker.commentNumber !== undefined && (
                 <span className="text-[10px] font-semibold text-text-tertiary shrink-0">#{marker.commentNumber}</span>
               )}
-              <span className="ml-auto text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
+              <span className="ml-auto text-[10px] font-mono text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">
                 {formatTimecode(marker.tc, fps ?? 24)}
               </span>
             </div>

@@ -1,12 +1,15 @@
 import logging
 import re
 import uuid
+import hashlib
+import hmac
+import secrets
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -30,6 +33,7 @@ from ..schemas.comment import (
     CommentResponse,
     CommentUpdate,
     GuestCommentCreate,
+    GuestCommentUpdate,
     ReactionCreate,
     ReactionResponse,
 )
@@ -307,7 +311,6 @@ def _create_mentions(db: Session, comment: Comment, asset: Asset, body: str, aut
             asset_link=asset_link,
         )
 
-
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.get("/assets/{asset_id}/comments", response_model=list[CommentResponse])
@@ -472,8 +475,8 @@ def delete_comment(
     comment = db.query(Comment).filter(Comment.id == comment_id, Comment.deleted_at.is_(None)).first()
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
-    # Allow comment owner or project owner to delete
-    if comment.author_id != current_user.id:
+    # Allow the author, project owner, or instance administrator to delete.
+    if comment.author_id != current_user.id and not current_user.is_superadmin:
         asset = _get_asset(db, comment.asset_id)
         member = db.query(ProjectMember).filter(
             ProjectMember.project_id == asset.project_id,
@@ -898,6 +901,7 @@ def guest_comment(
     # Determine author: logged-in user or guest
     author_id = None
     guest_author_id = None
+    guest_edit_token = None
     if current_user:
         author_id = current_user.id
     else:
@@ -910,6 +914,7 @@ def guest_comment(
             db.add(guest)
             db.flush()
         guest_author_id = guest.id
+        guest_edit_token = secrets.token_urlsafe(32)
 
     comment = Comment(
         asset_id=asset.id,
@@ -917,6 +922,10 @@ def guest_comment(
         parent_id=body.parent_id,
         author_id=author_id,
         guest_author_id=guest_author_id,
+        guest_edit_token_hash=(
+            hashlib.sha256(guest_edit_token.encode()).hexdigest()
+            if guest_edit_token else None
+        ),
         timecode_start=body.timecode_start,
         timecode_end=body.timecode_end,
         body=body.body,
@@ -966,4 +975,67 @@ def guest_comment(
     db.add(activity)
     db.commit()
 
+    response = _build_comment_response(comment, db)
+    if guest_edit_token:
+        response.guest_edit_token = guest_edit_token
+    return response
+
+
+def _require_guest_comment_authorization(
+    db: Session,
+    token: str,
+    comment_id: uuid.UUID,
+    guest_edit_token: str | None,
+    share_session: str | None,
+    current_user: User | None,
+) -> Comment:
+    """Authorize a guest mutation without trusting a name or email supplied by the browser."""
+    link = validate_share_link_with_session(
+        db, token, share_session=share_session, current_user=current_user
+    )
+    comment = _get_comment(db, comment_id)
+    if comment.visibility == "internal":
+        raise HTTPException(status_code=403, detail="Comment is not available on this share link")
+    validate_asset_in_share(db, link, _get_asset(db, comment.asset_id))
+    if not comment.guest_author_id or not comment.guest_edit_token_hash or not guest_edit_token:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this comment")
+    supplied_hash = hashlib.sha256(guest_edit_token.encode()).hexdigest()
+    if not hmac.compare_digest(comment.guest_edit_token_hash, supplied_hash):
+        raise HTTPException(status_code=403, detail="Not authorized to modify this comment")
+    return comment
+
+
+@router.patch("/share/{token}/comments/{comment_id}", response_model=CommentResponse)
+def update_guest_comment(
+    token: str,
+    comment_id: uuid.UUID,
+    body: GuestCommentUpdate,
+    guest_edit_token: str | None = Header(None, alias="X-Guest-Comment-Token"),
+    share_session: Optional[str] = Query(None, alias="share_session"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    comment = _require_guest_comment_authorization(
+        db, token, comment_id, guest_edit_token, share_session, current_user
+    )
+    comment.body = body.body
+    comment.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(comment)
     return _build_comment_response(comment, db)
+
+
+@router.delete("/share/{token}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_guest_comment(
+    token: str,
+    comment_id: uuid.UUID,
+    guest_edit_token: str | None = Header(None, alias="X-Guest-Comment-Token"),
+    share_session: Optional[str] = Query(None, alias="share_session"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    comment = _require_guest_comment_authorization(
+        db, token, comment_id, guest_edit_token, share_session, current_user
+    )
+    comment.deleted_at = datetime.now(timezone.utc)
+    db.commit()

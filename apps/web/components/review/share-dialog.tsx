@@ -579,6 +579,7 @@ export function ShareDialog({
   const [search, setSearch] = React.useState("");
   const [addingToToken, setAddingToToken] = React.useState<string | null>(null);
   const [addedToToken, setAddedToToken] = React.useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = React.useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
@@ -647,6 +648,14 @@ export function ShareDialog({
       // Could show error, but keeping simple
     } finally {
       setAddingToToken(null);
+    }
+  }
+
+  async function handleCopyLink(token: string) {
+    const url = `${window.location.origin}/share/${token}`;
+    if (await copyToClipboard(url)) {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2000);
     }
   }
 
@@ -727,39 +736,55 @@ export function ShareDialog({
                     filteredLinks.map((link) => {
                       const isAdding = addingToToken === link.token;
                       const isAdded = addedToToken === link.token;
+                      const isCopied = copiedToken === link.token;
                       return (
-                        <button
+                        <div
                           key={link.id}
-                          onClick={() => handleAddToLink(link)}
-                          disabled={isAdding || isAdded}
                           className={cn(
                             "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
                             isAdded
                               ? "bg-status-success/10"
                               : "hover:bg-bg-hover",
-                            "disabled:opacity-70",
                           )}
                         >
-                          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-tertiary shrink-0">
-                            {isAdding ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" />
-                            ) : isAdded ? (
-                              <Check className="h-4 w-4 text-status-success" />
-                            ) : (
-                              <Link2 className="h-4 w-4 text-text-tertiary" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm text-text-primary truncate">
-                              {link.title || link.target_name}
-                            </p>
-                            {isAdded && (
-                              <p className="text-[10px] text-status-success">
-                                Asset added!
+                          <button
+                            onClick={() => handleAddToLink(link)}
+                            disabled={isAdding || isAdded}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:opacity-70"
+                          >
+                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-tertiary shrink-0">
+                              {isAdding ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" />
+                              ) : isAdded ? (
+                                <Check className="h-4 w-4 text-status-success" />
+                              ) : (
+                                <Link2 className="h-4 w-4 text-text-tertiary" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-text-primary truncate">
+                                {link.title || link.target_name}
                               </p>
+                              {isAdded && (
+                                <p className="text-[10px] text-status-success">
+                                  Asset added!
+                                </p>
+                              )}
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => handleCopyLink(link.token)}
+                            className="rounded p-1.5 text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary transition-colors"
+                            title="Copy link"
+                            aria-label="Copy link"
+                          >
+                            {isCopied ? (
+                              <Check className="h-3.5 w-3.5 text-status-success" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
                             )}
-                          </div>
-                        </button>
+                          </button>
+                        </div>
                       );
                     })
                   )}

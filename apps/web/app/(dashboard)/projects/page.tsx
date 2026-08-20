@@ -167,7 +167,7 @@ function ProjectSection({
           {showNewButton && onNewProject && (
             <button
               onClick={onNewProject}
-              className="group flex flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-border bg-bg-secondary/30 aspect-square hover:border-accent/40 hover:bg-bg-secondary/60 transition-all duration-200"
+              className="group flex flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed border-border bg-bg-secondary/30 aspect-[7/8] hover:border-accent/40 hover:bg-bg-secondary/60 transition-all duration-200"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-tertiary text-text-tertiary group-hover:bg-accent group-hover:text-white transition-colors">
                 <Plus className="h-5 w-5" />

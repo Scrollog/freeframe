@@ -1,5 +1,9 @@
 import uuid
+import hashlib
 from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi import HTTPException
 
 from apps.api.models.share import SharePermission
 
@@ -187,3 +191,30 @@ def test_guest_comment_rejects_asset_outside_shared_project(client, mock_db):
         )
 
     assert response.status_code == 403
+
+
+def test_guest_comment_mutation_requires_its_own_edit_token():
+    """A guest's name/email alone must never authorize changing another guest's comment."""
+    from apps.api.routers.comments import _require_guest_comment_authorization
+
+    comment = MagicMock()
+    comment.visibility = "public"
+    comment.asset_id = uuid.uuid4()
+    comment.guest_author_id = uuid.uuid4()
+    comment.guest_edit_token_hash = hashlib.sha256(b"owner-token").hexdigest()
+
+    with patch("apps.api.routers.comments.validate_share_link_with_session"), \
+         patch("apps.api.routers.comments._get_comment", return_value=comment), \
+         patch("apps.api.routers.comments._get_asset"), \
+         patch("apps.api.routers.comments.validate_asset_in_share"):
+        result = _require_guest_comment_authorization(
+            MagicMock(), "share-token", comment.id, "owner-token", None, None
+        )
+        assert result is comment
+
+        with pytest.raises(HTTPException) as exc:
+            _require_guest_comment_authorization(
+                MagicMock(), "share-token", comment.id, "other-guest-token", None, None
+            )
+
+    assert exc.value.status_code == 403

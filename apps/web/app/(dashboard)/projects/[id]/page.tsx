@@ -425,7 +425,7 @@ export default function ProjectDetailPage() {
   );
 
   return (
-    <div className="flex h-full flex-col lg:flex-row overflow-hidden">
+    <div className="relative flex h-full flex-col lg:flex-row overflow-hidden">
       {/* ─── Left Sidebar (Frame.io style) ──────────────────────────────── */}
       <div className="hidden lg:flex w-72 flex-col border-r border-border bg-bg-secondary shrink-0">
         {/* Assets section */}
@@ -988,7 +988,7 @@ export default function ProjectDetailPage() {
 
       {/* ─── Right Panel (Comments + Fields tabs, or Share Link Settings) ─ */}
       {rightPanelOpen && (
-        <div className="hidden xl:flex w-[360px] flex-col border-l border-border bg-bg-secondary shrink-0">
+        <div className="absolute inset-y-0 right-0 z-30 flex w-full flex-col border-l border-border bg-bg-secondary shadow-2xl sm:w-[360px] xl:static xl:w-[360px] xl:shrink-0 xl:shadow-none">
           {showShareLinks && selectedShareLink ? (
             <ShareLinkSettingsPanel token={selectedShareLink} />
           ) : (

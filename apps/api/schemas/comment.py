@@ -32,6 +32,10 @@ class GuestCommentCreate(BaseModel):
 class CommentUpdate(BaseModel):
     body: str
 
+class GuestCommentUpdate(CommentUpdate):
+    """Guest updates are authorized by a per-comment token sent in a header."""
+    pass
+
 class AnnotationResponse(BaseModel):
     id: uuid.UUID
     comment_id: uuid.UUID
@@ -118,6 +122,9 @@ class CommentResponse(BaseModel):
     replies: list["CommentResponse"] = []
     attachments: list[AttachmentResponse] = []
     reactions: list[ReactionResponse] = []
+    # Returned only from guest comment creation. It is never persisted in plain text
+    # or included when comments are listed.
+    guest_edit_token: Optional[str] = None
     model_config = {"from_attributes": True}
 
 CommentResponse.model_rebuild()

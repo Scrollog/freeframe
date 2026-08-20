@@ -22,6 +22,14 @@ describe('Review store', () => {
     expect(useReviewStore.getState().playheadTime).toBe(42.5)
   })
 
+  it('stores and clears a selected comment range', () => {
+    useReviewStore.getState().setSelectedTimeRange({ start: 12.5, end: 18.25 })
+    expect(useReviewStore.getState().selectedTimeRange).toEqual({ start: 12.5, end: 18.25 })
+
+    useReviewStore.getState().setSelectedTimeRange(null)
+    expect(useReviewStore.getState().selectedTimeRange).toBeNull()
+  })
+
   it('toggleDrawingMode toggles the drawing mode', () => {
     expect(useReviewStore.getState().isDrawingMode).toBe(false)
     useReviewStore.getState().toggleDrawingMode()

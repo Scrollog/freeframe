@@ -61,6 +61,8 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const [activeTab, setActiveTab] = useState<'comments' | 'fields'>('comments')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const deepLinkApplied = useRef(false)
+  const knownCommentIds = useRef<Set<string> | null>(null)
+  const [newCommentIds, setNewCommentIds] = useState<string[]>([])
 
   // Fetch folder tree to build the folder path for the breadcrumb
   const { data: folderTree } = useSWR<FolderTreeNode[]>(
@@ -114,6 +116,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const currentMember = members?.find((m) => m.user_id === user?.id)
   const currentRole = currentMember?.role ?? 'viewer'
   const canComment = currentRole !== 'viewer'
+  const canDeleteAnyComment = user?.is_superadmin || currentRole === 'owner'
 
   // Fetch all assets for navigation (1 of N)
   const { data: allAssets } = useSWR<AssetResponse[]>(
@@ -123,12 +126,45 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
 
   const {
     comments,
+    isLoading: commentsLoading,
     createComment,
     resolveComment,
     deleteComment,
     addReaction,
     removeReaction,
   } = useComments(asset?.id || '', currentVersion?.id || '')
+
+  useEffect(() => {
+    knownCommentIds.current = null
+    setNewCommentIds([])
+  }, [asset?.id, currentVersion?.id])
+
+  useEffect(() => {
+    if (commentsLoading) return
+    const flatten = (items: typeof comments): typeof comments =>
+      items.flatMap((comment) => [
+        comment,
+        ...(comment.replies?.length ? flatten(comment.replies) : []),
+      ])
+    const allComments = flatten(comments)
+    const currentIds = new Set(allComments.map((comment) => comment.id))
+
+    if (knownCommentIds.current === null) {
+      knownCommentIds.current = currentIds
+      return
+    }
+
+    const addedBySomeoneElse = allComments
+      .filter((comment) => !knownCommentIds.current!.has(comment.id))
+      .filter((comment) => comment.author_id !== user?.id)
+      .map((comment) => comment.id)
+    if (addedBySomeoneElse.length) {
+      setNewCommentIds((previous) =>
+        Array.from(new Set(previous.concat(addedBySomeoneElse))),
+      )
+    }
+    knownCommentIds.current = currentIds
+  }, [comments, commentsLoading, user?.id])
 
   // Keep the version list live: when a new version transcodes, revalidate so it
   // appears/updates in the switcher without a hard refresh (#118). The review
@@ -498,6 +534,10 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                   <CommentPanel
                     comments={comments as any}
                     currentUserId={user?.id}
+                    newCommentIds={newCommentIds}
+                    canDeleteComment={(comment) =>
+                      canDeleteAnyComment || comment.author_id === user?.id
+                    }
                     onResolve={resolveComment}
                     onDelete={deleteComment}
                     onAddReaction={addReaction}

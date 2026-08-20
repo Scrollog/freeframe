@@ -212,6 +212,9 @@ services:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - NODE_ENV=development
       - HOSTNAME=0.0.0.0
+      # Docker Desktop on Windows can miss bind-mount file events; poll for
+      # changes so Next.js hot reload works reliably without restarts.
+      - WATCHPACK_POLLING=true
     volumes:
       - ./apps/web:/app
       - web_node_modules:/app/node_modules

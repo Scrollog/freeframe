@@ -8,6 +8,7 @@ interface ReviewState {
   currentAsset: Asset | null
   currentVersion: AssetVersion | null
   playheadTime: number
+  selectedTimeRange: { start: number; end: number } | null
   seekTarget: { time: number; id: number; pause?: boolean } | null
   focusedCommentId: string | null
   pendingAnnotation: Record<string, unknown> | null
@@ -20,6 +21,7 @@ interface ReviewState {
   setCurrentAsset: (asset: Asset) => void
   setCurrentVersion: (version: AssetVersion) => void
   setPlayheadTime: (time: number) => void
+  setSelectedTimeRange: (range: { start: number; end: number } | null) => void
   seekTo: (time: number, pause?: boolean) => void
   setFocusedCommentId: (id: string | null) => void
   setPendingAnnotation: (data: Record<string, unknown> | null) => void
@@ -37,6 +39,7 @@ const initialState = {
   currentAsset: null,
   currentVersion: null,
   playheadTime: 0,
+  selectedTimeRange: null,
   seekTarget: null,
   focusedCommentId: null,
   pendingAnnotation: null,
@@ -52,7 +55,7 @@ export const useReviewStore = create<ReviewState>()((set) => ({
   ...initialState,
 
   setCurrentAsset: (asset: Asset) => {
-    set({ currentAsset: asset, playheadTime: 0, seekTarget: null })
+    set({ currentAsset: asset, playheadTime: 0, seekTarget: null, selectedTimeRange: null })
   },
 
   setCurrentVersion: (version: AssetVersion) => {
@@ -66,6 +69,8 @@ export const useReviewStore = create<ReviewState>()((set) => ({
   setPlayheadTime: (time: number) => {
     set({ playheadTime: time })
   },
+
+  setSelectedTimeRange: (range) => set({ selectedTimeRange: range }),
 
   seekTo: (time: number, pause?: boolean) => {
     set({ seekTarget: { time, id: Date.now(), pause }, playheadTime: time })

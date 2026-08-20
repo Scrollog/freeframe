@@ -70,6 +70,7 @@ export function useComments(assetId: string | null, versionId: string | null) {
     (key: string) => api.get<CommentWithReplies[]>(key),
     {
       revalidateOnFocus: false,
+      refreshInterval: 10_000,
     },
   )
 

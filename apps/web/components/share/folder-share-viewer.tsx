@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildCommentNumbers } from '@/lib/comment-numbers'
+import { getGuestCommentToken, removeGuestCommentToken } from '@/lib/guest-comment-tokens'
 import { useReview, type CreateCommentPayload } from '@/components/review/review-provider'
 import { useReviewStore } from '@/stores/review-store'
 import type {
@@ -528,7 +529,7 @@ function ShareCommentList({ comments, loading, canComment, onReply }: ShareComme
                 </div>
                 <p className="text-sm text-text-secondary mt-1 leading-relaxed">{comment.body}</p>
                 {comment.timecode_start != null && (
-                  <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-accent font-mono bg-accent/10 px-1.5 py-0.5 rounded">
+                  <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-amber-400 font-mono bg-amber-500/20 px-1.5 py-0.5 rounded">
                     {Math.floor(comment.timecode_start / 60)}:{String(Math.floor(comment.timecode_start % 60)).padStart(2, '0')}
                   </span>
                 )}
@@ -819,7 +820,7 @@ function ShareReviewInner({
   // Guest identity flow for non-authenticated users
   const [guestIdentity, setGuestIdentity] = React.useState<{ name: string; email: string } | null>(null)
   const [showGuestPrompt, setShowGuestPrompt] = React.useState(false)
-  const pendingCommentRef = React.useRef<{ body: string; timecodeStart?: number; timecodeEnd?: number; annotationData?: Record<string, unknown> } | null>(null)
+  const pendingCommentRef = React.useRef<{ body: string; timecodeStart?: number; timecodeEnd?: number; annotationData?: Record<string, unknown>; parentId?: string } | null>(null)
   React.useEffect(() => {
     try {
       const stored = localStorage.getItem('ff_guest_identity')
@@ -828,15 +829,27 @@ function ShareReviewInner({
   }, [])
   const isLoggedIn = typeof window !== 'undefined' && !!localStorage.getItem('ff_access_token')
 
-  const submitComment = React.useCallback(async (body: string, timecodeStart?: number, timecodeEnd?: number, annotationData?: Record<string, unknown>) => {
+  const submitComment = React.useCallback(async (body: string, timecodeStart?: number, timecodeEnd?: number, annotationData?: Record<string, unknown>, parentId?: string) => {
     const payload: CreateCommentPayload = { body }
     if (currentVersion?.id) payload.version_id = currentVersion.id
     if (timecodeStart != null) payload.timecode_start = timecodeStart
     if (timecodeEnd != null) payload.timecode_end = timecodeEnd
     if (annotationData) payload.annotation = { drawing_data: annotationData }
+    if (parentId) payload.parent_id = parentId
     await addComment(payload)
     refetchComments().catch(() => {})
   }, [addComment, currentVersion, refetchComments])
+
+  const submitWithIdentity = React.useCallback(async (body: string, timecodeStart?: number, timecodeEnd?: number, annotationData?: Record<string, unknown>, parentId?: string) => {
+    const hasAuth = !!localStorage.getItem('ff_access_token')
+    const hasGuest = !!localStorage.getItem('ff_guest_identity')
+    if (!hasAuth && !hasGuest) {
+      pendingCommentRef.current = { body, timecodeStart, timecodeEnd, annotationData, parentId }
+      setShowGuestPrompt(true)
+      return
+    }
+    await submitComment(body, timecodeStart, timecodeEnd, annotationData, parentId)
+  }, [submitComment])
 
   const handleGuestIdentitySave = React.useCallback(async (name: string, email: string) => {
     const identity = { name, email }
@@ -846,9 +859,9 @@ function ShareReviewInner({
 
     // Auto-submit the pending comment
     if (pendingCommentRef.current) {
-      const { body, timecodeStart, timecodeEnd, annotationData } = pendingCommentRef.current
+      const { body, timecodeStart, timecodeEnd, annotationData, parentId } = pendingCommentRef.current
       pendingCommentRef.current = null
-      setTimeout(() => submitComment(body, timecodeStart, timecodeEnd, annotationData), 50)
+      setTimeout(() => submitComment(body, timecodeStart, timecodeEnd, annotationData, parentId), 50)
     }
   }, [submitComment])
 
@@ -941,11 +954,35 @@ function ShareReviewInner({
                 <CommentPanel
                   comments={comments}
                   onResolve={() => {}}
-                  onDelete={() => {}}
+                  canManageComment={(comment: any) => !!getGuestCommentToken(token, comment.id)}
+                  onUpdate={async (commentId: string, body: string) => {
+                    const guestEditToken = getGuestCommentToken(token, commentId)
+                    if (!guestEditToken) throw new Error('Not authorized to edit this comment')
+                    const session = shareSession ? `?share_session=${encodeURIComponent(shareSession)}` : ''
+                    const response = await fetch(`${API_URL}/share/${token}/comments/${commentId}${session}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'X-Guest-Comment-Token': guestEditToken },
+                      body: JSON.stringify({ body }),
+                    })
+                    if (!response.ok) throw new Error('Failed to edit comment')
+                    await refetchComments()
+                  }}
+                  onDelete={async (commentId: string) => {
+                    const guestEditToken = getGuestCommentToken(token, commentId)
+                    if (!guestEditToken) throw new Error('Not authorized to delete this comment')
+                    const session = shareSession ? `?share_session=${encodeURIComponent(shareSession)}` : ''
+                    const response = await fetch(`${API_URL}/share/${token}/comments/${commentId}${session}`, {
+                      method: 'DELETE',
+                      headers: { 'X-Guest-Comment-Token': guestEditToken },
+                    })
+                    if (!response.ok) throw new Error('Failed to delete comment')
+                    removeGuestCommentToken(token, commentId)
+                    await refetchComments()
+                  }}
                   onAddReaction={() => {}}
                   onRemoveReaction={() => {}}
                   onReply={() => {}}
-                  onSubmitReply={async () => {}}
+                  onSubmitReply={async (parentId: string, body: string) => submitWithIdentity(body, undefined, undefined, undefined, parentId)}
                 />
                 {permission === 'approve' && (
                   <ShareApprovalActions token={token} assetId={asset.id} shareSession={shareSession} />
@@ -955,16 +992,7 @@ function ShareReviewInner({
                     assetId={asset.id}
                     projectId=""
                     assetType={asset.asset_type}
-                    onSubmit={async (body: string, timecodeStart?: number, timecodeEnd?: number, annotationData?: Record<string, unknown>) => {
-                      const hasAuth = !!localStorage.getItem('ff_access_token')
-                      const hasGuest = !!localStorage.getItem('ff_guest_identity')
-                      if (!hasAuth && !hasGuest) {
-                        pendingCommentRef.current = { body, timecodeStart, timecodeEnd, annotationData }
-                        setShowGuestPrompt(true)
-                        return
-                      }
-                      await submitComment(body, timecodeStart, timecodeEnd, annotationData)
-                    }}
+                    onSubmit={async (body: string, timecodeStart?: number, timecodeEnd?: number, annotationData?: Record<string, unknown>, parentId?: string) => submitWithIdentity(body, timecodeStart, timecodeEnd, annotationData, parentId)}
                   />
                 )}
               </>
