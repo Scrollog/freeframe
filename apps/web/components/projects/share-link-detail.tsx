@@ -639,7 +639,7 @@ export function ShareLinkContent({
     }
   }, [shareLink, projectId]);
 
-  const shareUrl = `${frontendUrl}/share/${token}`;
+  const shareUrl = `${frontendUrl}/s/${shareLink?.short_code ?? token}`;
 
   if (!shareLink) {
     return (
@@ -830,8 +830,8 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
 
   const shareUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/share/${token}`
-      : `/share/${token}`;
+      ? `${window.location.origin}/s/${shareLink?.short_code ?? token}`
+      : `/s/${shareLink?.short_code ?? token}`;
 
   if (!shareLink) {
     return (

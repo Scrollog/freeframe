@@ -881,6 +881,7 @@ def list_project_share_links(
         db.query(
             ShareLink.id,
             ShareLink.token,
+            ShareLink.short_code,
             ShareLink.title,
             ShareLink.description,
             ShareLink.is_enabled,
@@ -904,6 +905,7 @@ def list_project_share_links(
         db.query(
             ShareLink.id,
             ShareLink.token,
+            ShareLink.short_code,
             ShareLink.title,
             ShareLink.description,
             ShareLink.is_enabled,
@@ -927,6 +929,7 @@ def list_project_share_links(
         db.query(
             ShareLink.id,
             ShareLink.token,
+            ShareLink.short_code,
             ShareLink.title,
             ShareLink.description,
             ShareLink.is_enabled,
@@ -955,6 +958,7 @@ def list_project_share_links(
         ShareLinkListItem(
             id=row.id,
             token=row.token,
+            short_code=row.short_code,
             title=row.title,
             description=row.description,
             is_enabled=row.is_enabled,

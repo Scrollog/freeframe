@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 import uuid
 from ..models.user import User
@@ -113,10 +114,10 @@ def get_asset_share_permission(db: Session, asset: Asset, user: User) -> SharePe
 # ── Share link validation ──────────────────────────────────────────────────────
 
 def validate_share_link(db: Session, token: str) -> ShareLink:
-    """Validate a share link token and return the link. Raises 404/410 on failure."""
+    """Validate a long token or short code and return the link. Raises 404/410 on failure."""
     from datetime import datetime, timezone
     link = db.query(ShareLink).filter(
-        ShareLink.token == token,
+        or_(ShareLink.token == token, ShareLink.short_code == token),
         ShareLink.deleted_at.is_(None),
     ).first()
     if not link:

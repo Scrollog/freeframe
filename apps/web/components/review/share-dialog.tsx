@@ -187,7 +187,7 @@ function LinkTab({ assetId }: LinkTabProps) {
       );
       const newLink = res.share_link;
       const url =
-        newLink.url ?? `${window.location.origin}/share/${newLink.token}`;
+        newLink.url ?? `${window.location.origin}/s/${newLink.short_code}`;
       setGeneratedUrl(url);
       setLinks((prev) => [...prev, { ...newLink, url }]);
     } catch (err) {
@@ -295,7 +295,7 @@ function LinkTab({ assetId }: LinkTabProps) {
               {links.map((link) => {
                 const linkUrl =
                   link.url ??
-                  `${typeof window !== "undefined" ? window.location.origin : ""}/share/${link.token}`;
+                  `${typeof window !== "undefined" ? window.location.origin : ""}/s/${link.short_code}`;
                 return (
                   <div
                     key={link.id}
@@ -651,8 +651,8 @@ export function ShareDialog({
     }
   }
 
-  async function handleCopyLink(token: string) {
-    const url = `${window.location.origin}/share/${token}`;
+  async function handleCopyLink(token: string, shortCode: string) {
+    const url = `${window.location.origin}/s/${shortCode}`;
     if (await copyToClipboard(url)) {
       setCopiedToken(token);
       setTimeout(() => setCopiedToken(null), 2000);
@@ -773,7 +773,7 @@ export function ShareDialog({
                             </div>
                           </button>
                           <button
-                            onClick={() => handleCopyLink(link.token)}
+                            onClick={() => handleCopyLink(link.token, link.short_code)}
                             className="rounded p-1.5 text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary transition-colors"
                             title="Copy link"
                             aria-label="Copy link"

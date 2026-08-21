@@ -1,4 +1,5 @@
 import uuid
+import secrets
 from datetime import datetime
 from enum import Enum as PyEnum
 from typing import Optional
@@ -19,6 +20,11 @@ class ShareVisibility(str, PyEnum):
     public = "public"
     secure = "secure"
 
+
+def generate_share_short_code() -> str:
+    """Return a URL-safe 96-bit bearer code for the public short share URL."""
+    return secrets.token_urlsafe(12)
+
 class ShareLink(Base):
     __tablename__ = "share_links"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -26,6 +32,7 @@ class ShareLink(Base):
     folder_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("folders.id"), nullable=True, index=True)
     project_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=True, index=True)
     token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    short_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, default=generate_share_short_code)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -52,6 +52,7 @@ type SelectedItem =
 
 interface CreatedShareResult {
   token: string
+  shortCode?: string
   title: string
   itemType: 'asset' | 'folder'
   thumbnailUrl: string | null
@@ -610,8 +611,8 @@ function LinkCreatedPhase({ result, allResults, onSelectResult, onDone, onAdvanc
 
   const shareUrl =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/share/${result.token}`
-      : `/share/${result.token}`
+      ? `${window.location.origin}/s/${result.shortCode ?? result.token}`
+      : `/s/${result.shortCode ?? result.token}`
 
   async function handleSaveTitle() {
     if (!title.trim() || title === result.title) {
