@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../state";
 import type { Asset, AssetVersion, Comment } from "../../lib/freeframe/types";
+import { buildCommentNumbers } from "../../lib/freeframe/comment-numbers";
 import { formatTimecode } from "../../lib/freeframe/timecode";
 import { relativeTime, shortDate } from "../../lib/freeframe/format";
 import {
@@ -35,6 +36,8 @@ import {
   IconChevronLeft,
   IconChevronUp,
   IconCircle,
+  IconClose,
+  IconClock,
   IconCopy,
   IconDownload,
   IconEmoji,
@@ -62,8 +65,8 @@ const REVIEW_SPLIT_CHROME_WIDTH = 18;
 type SortKey = "timecode" | "oldest" | "newest" | "commenter" | "completed";
 
 const SORTS: { key: SortKey; label: string }[] = [
-  { key: "oldest", label: "Oldest (Default)" },
-  { key: "timecode", label: "Timecode" },
+  { key: "oldest", label: "Oldest" },
+  { key: "timecode", label: "Timecode (Default)" },
   { key: "newest", label: "Newest" },
   { key: "commenter", label: "Commenter" },
   { key: "completed", label: "Completed" },
@@ -108,7 +111,7 @@ export const AssetView = ({
   onLinkChange: (link: AssetLink | null) => void;
   onExport: () => void;
 }) => {
-  const { api, settings, updateSettings, host, refreshHost } = useApp();
+  const { api, settings, updateSettings, user, host, refreshHost } = useApp();
   const [name, setName] = useState(asset.name);
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmRequest | null>(null);
@@ -119,6 +122,11 @@ export const AssetView = ({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [timecodeAttached, setTimecodeAttached] = useState(true);
+  const [selectedTimeRange, setSelectedTimeRange] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
   const [visibility, setVisibility] = useState<"public" | "internal">("public");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
@@ -126,7 +134,7 @@ export const AssetView = ({
   const [videoTime, setVideoTime] = useState(0);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("oldest");
+  const [sort, setSort] = useState<SortKey>("timecode");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   // Read state is local: the API tracks notifications, not per-comment reads.
   const readIds = useMemo(
@@ -183,6 +191,7 @@ export const AssetView = ({
   const isLinked = link?.assetId === asset.id;
   const offset = (isLinked ? link?.offsetSeconds : 0) ?? 0;
   const isVideo = asset.asset_type === "video";
+  const hasTimecode = isVideo || asset.asset_type === "audio";
   const markersOn = settings.markersVisible;
   const annotationsOn = settings.annotationsVisible;
 
@@ -266,18 +275,8 @@ export const AssetView = ({
 
   const openCount = comments.filter((c) => !c.resolved).length;
 
-  /**
-   * Thread numbers follow the order the comments were posted, so they stay put
-   * when the list is re-sorted or filtered — and read 1, 2, 3… by default.
-   */
-  const indexOf = useMemo(() => {
-    const order = comments
-      .slice()
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    const map = new Map<string, number>();
-    order.forEach((comment, i) => map.set(comment.id, i + 1));
-    return map;
-  }, [comments]);
+  /** Stable root-thread numbers, independent of visible sorting or filtering. */
+  const indexOf = useMemo(() => buildCommentNumbers(comments), [comments]);
 
   useEffect(() => {
     setName(asset.name);
@@ -450,11 +449,38 @@ export const AssetView = ({
       setError("Linked locally — Premiere would not store it in the project.");
     }
     onLinkChange(next);
+
+    const markerResult = await pushMarkers(comments);
+    if (markerResult) {
+      updateSettings({ markersVisible: true });
+      if (markerResult.skipped) {
+        setError(
+          `${markerResult.skipped} comment(s) fall outside the sequence and got no marker.`
+        );
+      }
+    }
+  };
+
+  const askToUnlink = () => {
+    setConfirming({
+      title: "Unlink asset from active sequence",
+      body: `Unlinking disconnects "${name}" from ${host.sequenceName ?? "this sequence"} and removes its FreeFrame markers from the timeline.`,
+      confirmLabel: "Unlink asset",
+      danger: true,
+      onConfirm: onUnlink,
+    });
   };
 
   const onUnlink = async () => {
-    await clearLink();
-    onLinkChange(null);
+    try {
+      // Only FreeFrame-owned markers are removed; hand-made Premiere markers
+      // are left untouched by the host-side clearMarkers implementation.
+      await clearMarkers();
+    } finally {
+      updateSettings({ markersVisible: false });
+      await clearLink();
+      onLinkChange(null);
+    }
   };
 
   const assetUrl = (commentId?: string) => {
@@ -506,10 +532,19 @@ export const AssetView = ({
       await api.createComment(asset.id, {
         version_id: versionId,
         body: draft.trim(),
-        timecode_start: composerTime,
+        timecode_start: timecodeAttached
+          ? selectedTimeRange?.start ?? composerTime
+          : null,
+        timecode_end:
+          timecodeAttached &&
+          selectedTimeRange &&
+          selectedTimeRange.end - selectedTimeRange.start > 0.05
+            ? selectedTimeRange.end
+            : undefined,
         visibility,
       });
       setDraft("");
+      setSelectedTimeRange(null);
       await loadComments();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -571,6 +606,16 @@ export const AssetView = ({
     }
   };
 
+  const onDeleteComment = async (comment: Comment) => {
+    try {
+      await api.deleteComment(comment.id);
+      if (activeId === comment.id) setActiveId(null);
+      await loadComments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
     <div className="asset-view">
       <ConfirmDialog request={confirming} onClose={() => setConfirming(null)} />
@@ -620,7 +665,7 @@ export const AssetView = ({
                   sub={host.ok ? host.sequenceName : "no sequence open"}
                   onSelect={() => {
                     close();
-                    if (isLinked) onUnlink();
+                    if (isLinked) askToUnlink();
                     else askToLink();
                   }}
                 />
@@ -751,6 +796,8 @@ export const AssetView = ({
               comments={comments}
               fps={host.fps}
               annotation={activeAnnotation}
+              selectedTimeRange={selectedTimeRange}
+              onSelectedTimeRangeChange={setSelectedTimeRange}
               onTimeUpdate={setVideoTime}
               onSelectComment={jumpTo}
             />
@@ -931,13 +978,19 @@ export const AssetView = ({
                 data-comment={comment.id}
                 className={`comment${comment.id === activeId ? " active" : ""}${
                   comment.resolved ? " resolved" : ""
-                }`}
+                }${comment.replies?.length ? " has-replies" : ""}`}
                 onClick={() => jumpTo(comment)}
               >
+                {user &&
+                  comment.author?.id !== user.id &&
+                  !readIds.has(comment.id) && <span className="unread-dot" />}
                 <div className="comment-head">
                   <span className="avatar">
-                    {initialsOf(authorOf(comment))}
-                    {!readIds.has(comment.id) && <span className="unread-dot" />}
+                    {comment.author?.avatar_url ? (
+                      <img src={comment.author.avatar_url} alt="" />
+                    ) : (
+                      initialsOf(authorOf(comment))
+                    )}
                   </span>
                   <span className="author">{authorOf(comment)}</span>
                   {comment.annotation && (
@@ -966,15 +1019,33 @@ export const AssetView = ({
                   {comment.timecode_start !== null && (
                     <span className="tc">
                       {formatTimecode(comment.timecode_start, host.fps)}
+                      {comment.timecode_end !== null &&
+                        comment.timecode_end !== undefined &&
+                        comment.timecode_end - comment.timecode_start > 0.05 && (
+                          <> – {formatTimecode(comment.timecode_end, host.fps)}</>
+                        )}
                     </span>
                   )}
                   {comment.body}
                 </p>
-                {comment.replies?.map((reply) => (
-                  <p key={reply.id} className="reply">
-                    <strong>{authorOf(reply)}</strong> {reply.body}
-                  </p>
-                ))}
+                {!!comment.replies?.length && (
+                  <div className="replies">
+                    {comment.replies.map((reply) => (
+                      <div key={reply.id} className="reply">
+                        <span className="avatar">
+                          {reply.author?.avatar_url ? (
+                            <img src={reply.author.avatar_url} alt="" />
+                          ) : (
+                            initialsOf(authorOf(reply))
+                          )}
+                        </span>
+                        <p>
+                          <strong>{authorOf(reply)}</strong> {reply.body}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {!!comment.reactions?.length && (
                   <div className="reactions" onClick={(e) => e.stopPropagation()}>
                     {comment.reactions.map((reaction) => (
@@ -1016,6 +1087,25 @@ export const AssetView = ({
                     <IconExternal width={12} height={12} />
                     Open
                   </button>
+                  {user &&
+                    (user.is_superadmin || comment.author?.id === user.id) && (
+                      <button
+                        className="text-btn danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setConfirming({
+                            title: "Delete comment",
+                            body: "This comment will be removed from the review.",
+                            confirmLabel: "Delete",
+                            danger: true,
+                            onConfirm: () => onDeleteComment(comment),
+                          });
+                        }}
+                      >
+                        <IconTrash width={12} height={12} />
+                        Delete
+                      </button>
+                    )}
                 </div>
                 {replyTo === comment.id && (
                   <div className="reply-box" onClick={(event) => event.stopPropagation()}>
@@ -1042,15 +1132,62 @@ export const AssetView = ({
 
           <div className="composer">
             <div className="composer-input">
-              <span className="tc">{formatTimecode(composerTime, host.fps)}</span>
+              {timecodeAttached && (
+                <span className="tc composer-tc">
+                  {selectedTimeRange ? (
+                    selectedTimeRange.end - selectedTimeRange.start > 0.05 ? (
+                      <>
+                        {formatTimecode(selectedTimeRange.start, host.fps)} –{" "}
+                        {formatTimecode(selectedTimeRange.end, host.fps)}
+                      </>
+                    ) : (
+                      formatTimecode(selectedTimeRange.start, host.fps)
+                    )
+                  ) : (
+                    formatTimecode(composerTime, host.fps)
+                  )}
+                  {selectedTimeRange && (
+                    <button
+                      className="range-clear"
+                      onClick={() => setSelectedTimeRange(null)}
+                      title="Clear selected range"
+                    >
+                      <IconClose width={10} height={10} />
+                    </button>
+                  )}
+                </span>
+              )}
               <AutoTextarea
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setDraft(value);
+                  if (
+                    value.trim() &&
+                    hasTimecode &&
+                    timecodeAttached &&
+                    !selectedTimeRange
+                  ) {
+                    setSelectedTimeRange({ start: composerTime, end: composerTime });
+                  }
+                }}
                 placeholder="Leave your comment…"
               />
             </div>
             <div className="composer-actions">
               <EmojiPicker onPick={(emoji) => setDraft((text) => text + emoji)} />
+              {hasTimecode && (
+                <button
+                  className={`icon-btn timecode-toggle${timecodeAttached ? " on" : ""}`}
+                  onClick={() => {
+                    if (timecodeAttached) setSelectedTimeRange(null);
+                    setTimecodeAttached((attached) => !attached);
+                  }}
+                  title={timecodeAttached ? "Detach timecode" : "Attach timecode"}
+                >
+                  <IconClock width={14} height={14} />
+                </button>
+              )}
               <span className="spacer" />
               <Dropdown
                 up

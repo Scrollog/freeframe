@@ -13,11 +13,13 @@ import {
 } from "react";
 import type { FreeFrameApi } from "../../lib/freeframe/api";
 import type { Comment } from "../../lib/freeframe/types";
+import { buildCommentNumbers } from "../../lib/freeframe/comment-numbers";
 import { formatTimecode } from "../../lib/freeframe/timecode";
 import { Dropdown, MenuRadio } from "./Dropdown";
 import { AnnotationOverlay } from "./AnnotationOverlay";
 import {
   IconChevronUp,
+  IconClose,
   IconLoop,
   IconPause,
   IconPlay,
@@ -37,6 +39,16 @@ const TIME_MODES: { key: TimeMode; label: string }[] = [
   { key: "seconds", label: "Seconds" },
 ];
 
+const authorNameOf = (comment: Comment) =>
+  comment.author?.name ?? comment.guest_author?.name ?? "Guest";
+
+const initialsOf = (name: string) =>
+  name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+
 export interface PlayerHandle {
   seek: (seconds: number) => void;
   currentTime: () => number;
@@ -50,13 +62,26 @@ interface PlayerProps {
   fps?: number;
   /** Fabric drawing to replay over the picture, or null for none. */
   annotation?: Record<string, unknown> | null;
+  selectedTimeRange?: { start: number; end: number } | null;
+  onSelectedTimeRangeChange?: (range: { start: number; end: number } | null) => void;
   onTimeUpdate?: (seconds: number) => void;
   onSelectComment?: (comment: Comment) => void;
 }
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(
   (
-    { api, assetId, versionId, comments, fps, annotation, onTimeUpdate, onSelectComment },
+    {
+      api,
+      assetId,
+      versionId,
+      comments,
+      fps,
+      annotation,
+      selectedTimeRange,
+      onSelectedTimeRangeChange,
+      onTimeUpdate,
+      onSelectComment,
+    },
     ref
   ) => {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -73,6 +98,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
     const [dragging, setDragging] = useState(false);
     const [timeMode, setTimeMode] = useState<TimeMode>("timecode");
     const [preview, setPreview] = useState<{ x: number; time: number } | null>(null);
+    const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
     const scrubRef = useRef<HTMLDivElement>(null);
     const previewRef = useRef<HTMLVideoElement>(null);
     const previewHls = useRef<{ destroy: () => void } | null>(null);
@@ -149,6 +175,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
       [comments]
     );
 
+    const commentNumbers = useMemo(() => buildCommentNumbers(comments), [comments]);
+
     const togglePlay = useCallback(() => {
       const video = videoRef.current;
       if (!video) return;
@@ -176,6 +204,32 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
       const bounds = bar.getBoundingClientRect();
       const ratio = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
       return ratio * duration;
+    };
+
+    const onRangeHandleDown = (
+      event: React.MouseEvent<HTMLButtonElement>,
+      handle: "start" | "end"
+    ) => {
+      if (!selectedTimeRange || !onSelectedTimeRangeChange) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const fixedStart = selectedTimeRange.start;
+      const fixedEnd = selectedTimeRange.end;
+
+      const onMove = (move: MouseEvent) => {
+        const at = timeAt(move.clientX);
+        onSelectedTimeRangeChange(
+          handle === "start"
+            ? { start: Math.min(at, fixedEnd), end: fixedEnd }
+            : { start: fixedStart, end: Math.max(at, fixedStart) }
+        );
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
     };
 
     /** Press and drag anywhere on the bar, the way a video player should feel. */
@@ -299,19 +353,39 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
             <div className="scrub-fill" style={{ width: `${progress}%` }} />
           </div>
           {duration > 0 &&
-            timed.map((comment) => (
-              <button
-                key={comment.id}
-                className={`pip${comment.resolved ? " done" : ""}`}
-                style={{ left: `${((comment.timecode_start as number) / duration) * 100}%` }}
-                title={`${formatTimecode(comment.timecode_start, fps)} — ${comment.body}`}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSelectComment?.(comment);
+            timed.map((comment) => {
+              const start = comment.timecode_start as number;
+              const end = comment.timecode_end;
+              const hasRange = end !== null && end !== undefined && end > start;
+              if (!hasRange) return null;
+              const left = (start / duration) * 100;
+              const right = Math.min(100, ((end as number) / duration) * 100);
+              return (
+                <button
+                  key={comment.id}
+                  className={`comment-range${comment.resolved ? " done" : ""}`}
+                  style={{ left: `${left}%`, width: `${Math.max(0, right - left)}%` }}
+                  title={`${formatTimecode(start, fps)} – ${formatTimecode(end, fps)} — ${comment.body}`}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectComment?.(comment);
+                  }}
+                />
+              );
+            })}
+          {selectedTimeRange &&
+            selectedTimeRange.end - selectedTimeRange.start > 0.05 && (
+              <span
+                className="selected-comment-range"
+                style={{
+                  left: `${(selectedTimeRange.start / duration) * 100}%`,
+                  width: `${
+                    ((selectedTimeRange.end - selectedTimeRange.start) / duration) * 100
+                  }%`,
                 }}
               />
-            ))}
+            )}
           <div className="playhead" style={{ left: `${progress}%` }}>
             <span className="knob" />
           </div>
@@ -332,6 +406,104 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
             </div>
           )}
         </div>
+
+        {duration > 0 && (timed.length > 0 || selectedTimeRange) && (
+          <div className="comment-marker-rail">
+            {selectedTimeRange && (
+              <>
+                {(selectedTimeRange.end - selectedTimeRange.start > 0.05
+                  ? [selectedTimeRange.start, selectedTimeRange.end]
+                  : [selectedTimeRange.start]
+                ).map((rangeTime, index, handles) => {
+                  const hasArea = handles.length === 2;
+                  const handle = hasArea && index === 0 ? "start" : "end";
+                  return (
+                    <button
+                      key={`${handle}-${rangeTime}`}
+                      className={`range-handle${hasArea ? ` ${handle}` : " point"}`}
+                      style={{ left: `${(rangeTime / duration) * 100}%` }}
+                      onMouseDown={(event) => onRangeHandleDown(event, handle)}
+                      title={handle === "start" ? "Adjust range start" : "Adjust range end"}
+                    />
+                  );
+                })}
+                <button
+                  className={`range-handle-clear${
+                    selectedTimeRange.end / duration > 0.9 ? " edge" : ""
+                  }`}
+                  style={{ left: `${(selectedTimeRange.end / duration) * 100}%` }}
+                  onClick={() => onSelectedTimeRangeChange?.(null)}
+                  title="Clear selected range"
+                >
+                  <IconClose width={10} height={10} />
+                </button>
+              </>
+            )}
+            {timed.map((comment) => {
+              const start = comment.timecode_start as number;
+              const end = comment.timecode_end;
+              const hasRange = end !== null && end !== undefined && end > start;
+              const left = (start / duration) * 100;
+              const authorName = authorNameOf(comment);
+              const commentNumber = commentNumbers.get(comment.id);
+              const tooltipEdge = left < 22 ? " start" : left > 78 ? " end" : "";
+              return (
+                <span key={comment.id} className="comment-marker">
+                  {hasRange && (
+                    <span
+                      className="comment-range-line"
+                      style={{
+                        left: `${left}%`,
+                        width: `${((end - start) / duration) * 100}%`,
+                      }}
+                    />
+                  )}
+                  <button
+                    className={`pip${comment.resolved ? " done" : ""}`}
+                    style={{ left: `${left}%` }}
+                    title={`${formatTimecode(start, fps)} — ${comment.body}`}
+                    onClick={() => onSelectComment?.(comment)}
+                    onMouseEnter={() => setHoveredCommentId(comment.id)}
+                    onMouseLeave={() => setHoveredCommentId(null)}
+                  >
+                    {comment.author?.avatar_url ? (
+                      <img src={comment.author.avatar_url} alt="" />
+                    ) : (
+                      initialsOf(authorName)
+                    )}
+                  </button>
+                  {hoveredCommentId === comment.id && (
+                    <span
+                      className={`comment-tooltip${tooltipEdge}`}
+                      style={{ left: `${left}%` }}
+                    >
+                      <span className="comment-tooltip-head">
+                        <span className="marker-avatar">
+                          {comment.author?.avatar_url ? (
+                            <img src={comment.author.avatar_url} alt="" />
+                          ) : (
+                            initialsOf(authorName)
+                          )}
+                        </span>
+                        <strong>{authorName}</strong>
+                        {commentNumber !== undefined && (
+                          <span className="comment-tooltip-index">#{commentNumber}</span>
+                        )}
+                      </span>
+                      <span className="comment-tooltip-body">
+                        <em>
+                          {formatTimecode(start, fps)}
+                          {hasRange ? ` – ${formatTimecode(end, fps)}` : ""}
+                        </em>
+                        {comment.body}
+                      </span>
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         <div className="player-bar">
           <button

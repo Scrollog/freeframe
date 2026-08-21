@@ -277,6 +277,7 @@ export class FreeFrameApi {
       version_id: string;
       body: string;
       timecode_start?: number | null;
+      timecode_end?: number | null;
       /** "public" is visible to everyone on the asset; "internal" to the team. */
       visibility?: "public" | "internal";
     }
@@ -304,6 +305,10 @@ export class FreeFrameApi {
 
   resolve(commentId: string) {
     return this.request<Comment>(`/comments/${commentId}/resolve`, { method: "POST" });
+  }
+
+  deleteComment(commentId: string) {
+    return this.request<void>(`/comments/${commentId}`, { method: "DELETE" });
   }
 
   // -- upload -----------------------------------------------------------------

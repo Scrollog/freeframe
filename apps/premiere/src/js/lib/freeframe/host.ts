@@ -4,6 +4,7 @@
  */
 import { evalTS } from "../utils/bolt";
 import type { Comment } from "./types";
+import { buildCommentNumbers } from "./comment-numbers";
 import { snapToFrame } from "./timecode";
 
 export interface HostInfo {
@@ -78,28 +79,28 @@ export const syncComments = async (
 ): Promise<SyncResult> => {
   const { offsetSeconds = 0, fps, includeResolved = true } = options;
 
-  // Same thread numbering the panel shows — posting order — so a marker and its
-  // comment card carry the same "#4" however the list happens to be sorted.
-  const numbers = new Map<string, number>();
-  comments
-    .slice()
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .forEach((comment, i) => numbers.set(comment.id, i + 1));
+  // Same root-thread numbering as the web review panel, regardless of sorting.
+  const numbers = buildCommentNumbers(comments);
 
   const markers = comments
     .filter((c) => c.timecode_start !== null && c.timecode_start !== undefined)
     .filter((c) => includeResolved || !c.resolved)
-    .map((c) => ({
-      id: c.id,
-      start: snapToFrame(c.timecode_start as number, fps),
-      end:
-        c.timecode_end !== null && c.timecode_end !== undefined
-          ? snapToFrame(c.timecode_end, fps)
-          : undefined,
-      name: `#${numbers.get(c.id)} ${authorOf(c)}${c.resolved ? " ✓" : ""}`,
-      comment: markerBody(c),
-      colorIndex: c.resolved ? COLOR_RESOLVED : COLOR_OPEN,
-    }));
+    .map((c) => {
+      const number = numbers.get(c.id);
+      return {
+        id: c.id,
+        start: snapToFrame(c.timecode_start as number, fps),
+        end:
+          c.timecode_end !== null && c.timecode_end !== undefined
+            ? snapToFrame(c.timecode_end, fps)
+            : undefined,
+        name: `${number !== undefined ? `#${number} ` : ""}${authorOf(c)}${
+          c.resolved ? " ✓" : ""
+        }`,
+        comment: markerBody(c),
+        colorIndex: c.resolved ? COLOR_RESOLVED : COLOR_OPEN,
+      };
+    });
   return (await evalTS("syncMarkers", markers, offsetSeconds)) as SyncResult;
 };
 

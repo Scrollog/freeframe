@@ -508,7 +508,7 @@ function CommentItem({
         />
       )}
       {depth === 0 && hasReplies && (
-        <span className="pointer-events-none absolute bottom-3 left-7 top-3 z-0 w-px bg-border" />
+        <span className="pointer-events-none absolute bottom-[74px] left-7 top-3 z-0 w-px bg-border" />
       )}
       <div className="relative z-[1] flex gap-2.5 py-3">
         {/* Colored avatar */}

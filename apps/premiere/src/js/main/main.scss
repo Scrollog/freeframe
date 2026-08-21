@@ -173,6 +173,14 @@ button {
     background-color: $bg-hover;
     color: $text-primary;
   }
+
+  &.danger {
+    color: $error;
+
+    &:hover:not(:disabled) {
+      color: $error;
+    }
+  }
 }
 
 /* Search input with a leading glyph. */
@@ -1517,24 +1525,48 @@ button {
       }
     }
 
-    .pip {
+    .comment-range {
       position: absolute;
-      top: 7px;
-      width: 8px;
-      height: 8px;
-      margin-left: -4px;
+      top: 9px;
+      height: 4px;
+      min-width: 2px;
       padding: 0;
-      border-radius: 50%;
-      background: $warning;
-      border: 1px solid rgba(0, 0, 0, 0.7);
-      transition: transform 0.15s $ease, background-color 0.15s $ease;
+      border: 0;
+      border-radius: 2px;
+      background: rgba(240, 240, 240, 0.26);
+      transition: background-color 0.15s $ease, height 0.12s $ease, top 0.12s $ease;
 
       &:hover {
-        transform: scale(1.5);
+        background: rgba(240, 240, 240, 0.45);
       }
 
       &.done {
-        background: $success;
+        background: rgba(200, 200, 200, 0.22);
+      }
+    }
+
+    .selected-comment-range {
+      position: absolute;
+      z-index: 2;
+      top: 9px;
+      height: 4px;
+      min-width: 2px;
+      border-radius: 2px;
+      background: rgba(251, 191, 36, 0.48);
+      pointer-events: none;
+      transition: height 0.12s $ease, top 0.12s $ease;
+    }
+
+    &:hover,
+    &.dragging {
+      .comment-range {
+        top: 8px;
+        height: 6px;
+      }
+
+      .selected-comment-range {
+        top: 8px;
+        height: 6px;
       }
     }
 
@@ -1568,6 +1600,237 @@ button {
         font-family: $font-mono;
         font-size: 11px;
         color: $text-primary;
+      }
+    }
+  }
+
+  .comment-marker-rail {
+    position: relative;
+    height: 22px;
+    margin-top: -2px;
+
+    .comment-range-line {
+      position: absolute;
+      z-index: 1;
+      top: 9px;
+      height: 4px;
+      border-radius: 999px;
+      background: $text-primary;
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .range-handle {
+      position: absolute;
+      z-index: 5;
+      top: 0;
+      width: 12px;
+      height: 20px;
+      margin-left: -6px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      cursor: ew-resize;
+
+      &::before {
+        content: "";
+        position: absolute;
+        top: 1px;
+        bottom: 1px;
+        left: 50%;
+        width: 3px;
+        border-radius: 2px;
+        background: $text-primary;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+        transform: translateX(-50%);
+      }
+
+      &::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 7px;
+        border-top: 2px solid $warning;
+        border-bottom: 2px solid $warning;
+      }
+
+      &.start::after {
+        left: 0;
+        border-left: 2px solid $warning;
+      }
+
+      &.end::after {
+        right: 0;
+        border-right: 2px solid $warning;
+      }
+
+      &.point {
+        width: 16px;
+        margin-left: -8px;
+
+        &::before {
+          left: 4px;
+          transform: none;
+          box-shadow: 5px 0 0 $text-primary, 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        &::after {
+          left: 0;
+          width: 16px;
+          border-right: 2px solid $warning;
+          border-left: 2px solid $warning;
+        }
+      }
+    }
+
+    .range-handle-clear {
+      position: absolute;
+      z-index: 6;
+      top: 2px;
+      width: 16px;
+      height: 16px;
+      margin-left: 9px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 50%;
+      background: $text-tertiary;
+      color: $bg-primary;
+
+      &:hover {
+        background: $text-secondary;
+      }
+
+      &.edge {
+        margin-left: -25px;
+      }
+    }
+
+    .pip {
+      position: absolute;
+      z-index: 3;
+      top: 1px;
+      width: 18px;
+      height: 18px;
+      margin-left: -9px;
+      padding: 0;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: $bg-hover;
+      border: 2px solid $bg-primary;
+      color: $text-primary;
+      font-size: 8px;
+      font-weight: 600;
+      transition: transform 0.15s $ease, background-color 0.15s $ease;
+
+      &:hover {
+        transform: scale(1.16);
+      }
+
+      &.done {
+        background: $success;
+      }
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+    }
+
+    .comment-tooltip {
+      position: absolute;
+      z-index: 16;
+      bottom: 24px;
+      width: 190px;
+      padding: 7px 8px;
+      border: 1px solid $border-primary;
+      border-radius: $radius-md;
+      background: $bg-elevated;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+      color: $text-primary;
+      pointer-events: none;
+      transform: translateX(-50%);
+      animation: fade 0.12s $ease;
+
+      &.start {
+        transform: translateX(0);
+      }
+
+      &.end {
+        transform: translateX(-100%);
+      }
+    }
+
+    .comment-tooltip-head {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+
+      strong {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+    }
+
+    .comment-tooltip-index {
+      flex: none;
+      color: $text-tertiary;
+      font-family: $font-mono;
+      font-size: 10px;
+    }
+
+    .marker-avatar {
+      width: 16px;
+      height: 16px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 50%;
+      background: $bg-hover;
+      color: $text-primary;
+      font-size: 8px;
+      font-weight: 600;
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+    }
+
+    .comment-tooltip-body {
+      display: flex;
+      gap: 5px;
+      margin-top: 4px;
+      color: $text-secondary;
+      font-size: 11px;
+      line-height: 1.35;
+
+      em {
+        align-self: flex-start;
+        flex: none;
+        padding: 1px 3px;
+        border-radius: $radius-sm;
+        background: rgba(251, 191, 36, 0.12);
+        color: $warning;
+        font-family: $font-mono;
+        font-size: 10px;
+        font-style: normal;
       }
     }
   }
@@ -1670,10 +1933,13 @@ button {
 }
 
 .comment {
+  position: relative;
   background-color: $bg-tertiary;
   border: 1px solid transparent;
   border-radius: $radius-md;
   padding: 7px 8px;
+  font-size: 13px;
+  line-height: 1.4;
   cursor: pointer;
   animation: rise 0.18s $ease backwards;
   transition: border-color 0.18s $ease, background-color 0.18s $ease,
@@ -1717,11 +1983,19 @@ button {
     align-items: center;
     justify-content: center;
     flex: none;
+    overflow: hidden;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
   }
 
   .author {
     color: $text-primary;
     font-weight: 500;
+    font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1733,17 +2007,18 @@ button {
     flex: 1;
   }
 
-  /* Unread marker, tucked against the avatar. */
+  /* Unread marker, pinned to the comment card rather than the avatar. */
   .unread-dot {
     position: absolute;
-    top: -2px;
-    left: -3px;
-    width: 8px;
-    height: 8px;
+    z-index: 3;
+    top: 3px;
+    left: 3px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: $accent;
-    border: 2px solid $bg-tertiary;
-    box-sizing: content-box;
+    border: 1px solid $bg-tertiary;
+    box-sizing: border-box;
   }
 
   &:hover .unread-dot,
@@ -1790,23 +2065,79 @@ button {
   }
 
   .body {
-    margin: 4px 0 0;
+    margin: 4px 0 0 24px;
     white-space: pre-wrap;
     word-break: break-word;
     color: $text-primary;
   }
 
+  .replies {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 6px;
+  }
+
+  &.has-replies::after {
+    content: "";
+    position: absolute;
+    top: 26px;
+    bottom: 16px;
+    left: 17px;
+    width: 1px;
+    background: $border-primary;
+    pointer-events: none;
+    z-index: 0;
+  }
+
   .reply {
-    margin: 4px 0 0 10px;
-    padding-left: 8px;
-    border-left: 1px solid $border-secondary;
-    white-space: pre-wrap;
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding-top: 6px;
+    min-width: 0;
     color: $text-secondary;
+
+    &:last-child::after {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      top: 16px;
+      left: 8px;
+      width: 3px;
+      height: 36px;
+      background: $bg-tertiary;
+      pointer-events: none;
+    }
+
+    .avatar {
+      z-index: 1;
+      width: 18px;
+      height: 18px;
+      margin-top: 1px;
+      background: $bg-hover;
+      font-size: 9px;
+    }
+
+    p {
+      min-width: 0;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
 
     strong {
       color: $text-primary;
       font-weight: 500;
     }
+  }
+
+  &:hover .reply:last-child::after,
+  &.active .reply:last-child::after {
+    background: $bg-elevated;
   }
 
   .reactions {
@@ -1846,22 +2177,14 @@ button {
     }
   }
 
-  /* Revealed with opacity alone: clipping this row with overflow/max-height
-     also clipped the reaction picker that opens out of it. */
+  /* Kept in normal flow so reply, emoji and link actions stay available. */
   .comment-actions {
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 2px;
     margin-top: 4px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.18s $ease;
-  }
-
-  &:hover .comment-actions,
-  &.active .comment-actions,
-  &:focus-within .comment-actions {
-    opacity: 1;
     pointer-events: auto;
   }
 
@@ -1913,6 +2236,28 @@ button {
     margin-top: 5px;
   }
 
+  .composer-tc {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .range-clear {
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    color: $warning;
+
+    &:hover {
+      color: $text-primary;
+    }
+  }
+
   textarea {
     flex: 1;
     padding: 4px 4px 4px 2px;
@@ -1931,6 +2276,15 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
+
+  .timecode-toggle.on {
+    color: $warning;
+
+    &:hover:not(:disabled) {
+      color: $warning;
+      background-color: transparent;
+    }
+  }
 
   .chip.with-icon {
     height: 24px;
