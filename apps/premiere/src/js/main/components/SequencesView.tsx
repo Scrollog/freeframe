@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../state";
 import type { Asset } from "../../lib/freeframe/types";
 import { relativeTime } from "../../lib/freeframe/format";
-import type { AssetLink } from "../../lib/freeframe/host";
+import { getSegmentLinks, type AssetLink, type SegmentLink } from "../../lib/freeframe/host";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
 import { ApiError } from "../../lib/freeframe/api";
 import { Dropdown, MenuAction } from "./Dropdown";
@@ -25,7 +25,7 @@ import {
 
 const PHASE_LABEL: Record<string, string> = {
   queued: "Queued",
-  rendering: "Uploading",
+  rendering: "Encoding",
   uploading: "Uploading",
   done: "Uploaded",
   failed: "Failed",
@@ -60,6 +60,25 @@ export const SequencesView = ({
   const [thumbTick, setThumbTick] = useState(0);
   const [gone, setGone] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
+
+  useEffect(() => {
+    if (!host.ok) {
+      setSegmentLinks([]);
+      return;
+    }
+    let cancelled = false;
+    getSegmentLinks()
+      .then((links) => {
+        if (!cancelled) setSegmentLinks(links);
+      })
+      .catch(() => {
+        if (!cancelled) setSegmentLinks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [host.ok, host.sequenceId]);
 
   const history = useMemo(
     () => (settings.exportHistory ?? []).filter((entry) => !gone.includes(entry.assetId)),
@@ -79,10 +98,16 @@ export const SequencesView = ({
 
   /** The asset that belongs to the open sequence, if it has been exported. */
   const current = useMemo(() => {
-    if (link) return history.find((entry) => entry.assetId === link.assetId) ?? null;
+    // An In/Out export has no single direct sequence link. Its association is
+    // stored in the segment list, so include those assets in the current card.
+    const linkedAssetIds = [link?.assetId, ...segmentLinks.map((segment) => segment.assetId)].filter(
+      (id): id is string => !!id
+    );
+    const linked = history.find((entry) => linkedAssetIds.includes(entry.assetId));
+    if (linked) return linked;
     if (!host.sequenceName) return null;
     return history.find((entry) => entry.sequenceName === host.sequenceName) ?? null;
-  }, [link, history, host.sequenceName]);
+  }, [link, segmentLinks, history, host.sequenceName]);
 
   // Thumbnails and comment counts aren't in the history, so fetch what's shown.
   useEffect(() => {

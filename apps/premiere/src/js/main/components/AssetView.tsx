@@ -14,11 +14,14 @@ import { relativeTime, shortDate } from "../../lib/freeframe/format";
 import {
   clearLink,
   clearMarkers,
+  getSegmentLinks,
   inPremiere,
+  removeSegmentLink,
   setLink,
   setPlayheadSeconds,
   syncComments,
   type AssetLink,
+  type SegmentLink,
 } from "../../lib/freeframe/host";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
 import { Player, type PlayerHandle } from "./Player";
@@ -47,6 +50,7 @@ import {
   IconGlobe,
   IconLink,
   IconMarker,
+  IconPlus,
   IconRename,
   IconReply,
   IconSearch,
@@ -100,11 +104,13 @@ const initialsOf = (name: string) =>
 export const AssetView = ({
   asset,
   onBack,
+  onExport,
   link,
   onLinkChange,
 }: {
   asset: Asset;
   onBack: () => void;
+  onExport: () => void;
   link: AssetLink | null;
   onLinkChange: (link: AssetLink | null) => void;
 }) => {
@@ -115,6 +121,7 @@ export const AssetView = ({
   const [sharing, setSharing] = useState(false);
   const [versions, setVersions] = useState<AssetVersion[]>([]);
   const [versionId, setVersionId] = useState(asset.latest_version?.id ?? "");
+  const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -152,9 +159,20 @@ export const AssetView = ({
   useEffect(() => {
     const node = reviewRef.current;
     if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) =>
-      setWide(entry.contentRect.width >= 640)
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      const isWide = width >= 640;
+      setWide(isWide);
+      if (isWide) {
+        const maxSideWidth = Math.max(
+          MIN_REVIEW_SIDE_WIDTH,
+          width - MIN_REVIEW_MAIN_WIDTH - REVIEW_SPLIT_CHROME_WIDTH
+        );
+        // Shrinking the panel must clamp the existing splitter choice too;
+        // previously that only happened after the user dragged it again.
+        setSideWidth((current) => Math.min(current, maxSideWidth));
+      }
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
@@ -185,8 +203,39 @@ export const AssetView = ({
     document.addEventListener("mouseup", onUp);
   };
 
-  const isLinked = link?.assetId === asset.id;
-  const offset = (isLinked ? link?.offsetSeconds : 0) ?? 0;
+  useEffect(() => {
+    if (!host.ok) {
+      setSegmentLinks([]);
+      return;
+    }
+    let cancelled = false;
+    getSegmentLinks()
+      .then((links) => {
+        if (!cancelled) setSegmentLinks(links);
+      })
+      .catch(() => {
+        if (!cancelled) setSegmentLinks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [asset.id, host.ok, host.sequenceId, versionId]);
+
+  const sequenceLink = link?.assetId === asset.id ? link : null;
+  const segmentLink = useMemo(
+    () =>
+      segmentLinks.find(
+        (entry) => entry.assetId === asset.id && entry.versionId === versionId
+      ) ?? segmentLinks.find((entry) => entry.assetId === asset.id) ?? null,
+    [asset.id, segmentLinks, versionId]
+  );
+  const isLinked = !!sequenceLink || !!segmentLink;
+  // Segment comments are relative to the exported In/Out clip. The Premiere
+  // marker must include that clip's real timeline start.
+  // A direct sequence link may be recreated after an In/Out export. Keep the
+  // segment's real timeline start authoritative, otherwise relinking would
+  // replace it with the direct link's default offset (zero).
+  const offset = segmentLink?.inPoint ?? sequenceLink?.offsetSeconds ?? 0;
   const isVideo = asset.asset_type === "video";
   const hasTimecode = isVideo || asset.asset_type === "audio";
   const markersOn = settings.markersVisible;
@@ -291,13 +340,16 @@ export const AssetView = ({
     })();
   }, [api, asset.id]);
 
-  const loadComments = useCallback(async () => {
-    if (!versionId) return;
+  const loadComments = useCallback(async (): Promise<Comment[] | null> => {
+    if (!versionId) return null;
     try {
-      setComments(await api.comments(asset.id, versionId));
+      const list = await api.comments(asset.id, versionId);
+      setComments(list);
       setError("");
+      return list;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return null;
     }
   }, [api, asset.id, versionId]);
 
@@ -382,10 +434,22 @@ export const AssetView = ({
     .join("|");
 
   useEffect(() => {
-    if (!markersOn || !host.ok || !comments.length) return;
+    if (!markersOn || !host.ok) return;
     pushMarkers(comments);
     // `signature` stands in for the comment set; `comments` changes every poll.
-  }, [signature, markersOn, host.sequenceId]);
+  }, [signature, markersOn, host.sequenceId, offset]);
+
+  /**
+   * In/Out exports are already linked when their upload completes, without a
+   * manual "Link asset" click. As soon as that asset has comments, enable the
+   * same marker sync that the manual-link flow performs.
+   */
+  useEffect(() => {
+    if (!segmentLink || !host.ok || markersOn || !comments.length) return;
+    pushMarkers(comments).then((result) => {
+      if (result) updateSettings({ markersVisible: true });
+    });
+  }, [segmentLink?.id, signature, host.ok, host.sequenceId, offset]);
 
   const toggleMarkers = async () => {
     if (!host.ok) {
@@ -395,10 +459,15 @@ export const AssetView = ({
     setBusy(true);
     try {
       if (markersOn) {
-        await clearMarkers();
+        const result = await clearMarkers();
+        if (!result.ok) {
+          setError(`Could not remove markers: ${result.error}`);
+          return;
+        }
         updateSettings({ markersVisible: false });
       } else {
         const result = await pushMarkers(comments);
+        if (!result) return;
         updateSettings({ markersVisible: true });
         // Comments outside the sequence silently have nowhere to go, so that
         // one case is still worth saying out loud.
@@ -469,15 +538,49 @@ export const AssetView = ({
   };
 
   const onUnlink = async () => {
+    let errorMessage: string | null = null;
     try {
       // Only FreeFrame-owned markers are removed; hand-made Premiere markers
       // are left untouched by the host-side clearMarkers implementation.
-      await clearMarkers();
-    } finally {
-      updateSettings({ markersVisible: false });
-      await clearLink();
+      const markerResult = await clearMarkers();
+      if (!markerResult.ok) {
+        errorMessage = `Could not remove markers: ${markerResult.error}`;
+      }
+    } catch (error) {
+      errorMessage = `Could not remove markers: ${String(error)}`;
+    }
+
+    if (segmentLink) {
+      try {
+        const result = await removeSegmentLink(segmentLink.id);
+        if (!result.ok) {
+          errorMessage ??= `Could not unlink segment: ${result.error}`;
+        } else {
+          setSegmentLinks((links) => links.filter((link) => link.id !== segmentLink.id));
+        }
+      } catch (error) {
+        errorMessage ??= `Could not unlink segment: ${String(error)}`;
+      }
+    }
+    if (sequenceLink) {
+      try {
+        const result = await clearLink();
+        if (!result.ok) {
+          errorMessage ??= `Could not unlink asset: ${result.error}`;
+        }
+      } catch (error) {
+        errorMessage ??= `Could not unlink asset: ${String(error)}`;
+      }
       onLinkChange(null);
     }
+
+    updateSettings({ markersVisible: false });
+    try {
+      await refreshHost();
+    } catch (error) {
+      errorMessage ??= `Could not refresh Premiere: ${String(error)}`;
+    }
+    if (errorMessage) setError(errorMessage);
   };
 
   const assetUrl = (commentId?: string) => {
@@ -542,7 +645,14 @@ export const AssetView = ({
       });
       setDraft("");
       setSelectedTimeRange(null);
-      await loadComments();
+      const list = await loadComments();
+      // A newly exported In/Out asset is linked through its segment metadata,
+      // rather than the manual link menu. Push the first new note immediately
+      // so the marker appears without requiring a relink.
+      if (isLinked && host.ok && list) {
+        const result = await pushMarkers(list);
+        if (result) updateSettings({ markersVisible: true });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -636,6 +746,16 @@ export const AssetView = ({
             onChange={(e) => setName(e.target.value)}
             onBlur={onRename}
             onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === " ") {
+                e.preventDefault();
+                const input = e.currentTarget;
+                const start = input.selectionStart ?? input.value.length;
+                const end = input.selectionEnd ?? start;
+                setName((current) => `${current.slice(0, start)} ${current.slice(end)}`);
+                requestAnimationFrame(() => input.setSelectionRange(start + 1, start + 1));
+                return;
+              }
               if (e.key === "Enter") onRename();
               if (e.key === "Escape") {
                 setName(asset.name);
@@ -772,6 +892,13 @@ export const AssetView = ({
         <button className="chip with-icon" onClick={() => setSharing(true)}>
           <IconShare width={13} height={13} />
           Share
+        </button>
+        <button
+          className="primary icon-btn"
+          onClick={onExport}
+          title="Export the active sequence"
+        >
+          <IconPlus width={15} height={15} />
         </button>
       </nav>
 

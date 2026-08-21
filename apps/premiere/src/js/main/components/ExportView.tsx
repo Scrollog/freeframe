@@ -22,6 +22,13 @@ const RANGES = [
   { value: 1, label: "In/Out Points" },
 ];
 
+type StackTarget = AssetLink | SegmentLink;
+
+const isSegmentLink = (target: StackTarget): target is SegmentLink =>
+  typeof (target as SegmentLink).id === "string" &&
+  typeof (target as SegmentLink).inPoint === "number" &&
+  typeof (target as SegmentLink).outPoint === "number";
+
 export const ExportView = ({
   link,
   onClose,
@@ -41,7 +48,8 @@ export const ExportView = ({
   const [keepLocalCopy, setKeepLocalCopy] = useState(false);
   const [versionStack, setVersionStack] = useState(false);
   const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
-  const [stackTarget, setStackTarget] = useState<AssetLink | null>(null);
+  const [stackTarget, setStackTarget] = useState<StackTarget | null>(null);
+  const [stackTargets, setStackTargets] = useState<StackTarget[]>([]);
   const [nextVersion, setNextVersion] = useState(0);
   // The link can outlive its asset — deleted here, on the web, or by someone
   // else. Until the version count comes back we don't know which.
@@ -54,6 +62,49 @@ export const ExportView = ({
     if (!host.ok) return;
     getSegmentLinks().then(setSegmentLinks).catch(() => setSegmentLinks([]));
   }, [host.ok]);
+
+  // Metadata in a Premiere project can outlive an asset being moved or deleted
+  // on FreeFrame. Validate each timeline link before offering it as a V1.
+  const linkedTargets = useMemo(() => {
+    const candidates: StackTarget[] = [...(link ? [link] : []), ...segmentLinks];
+    const seen = new Set<string>();
+    return candidates.filter((candidate) => {
+      const key = isSegmentLink(candidate) ? candidate.id : `sequence-${candidate.assetId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [link, segmentLinks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      linkedTargets.map(async (candidate) => {
+        try {
+          const asset = await api.asset(candidate.assetId);
+          if (asset.project_id !== candidate.projectId) return null;
+          return { ...candidate, assetName: asset.name, projectId: asset.project_id };
+        } catch {
+          return null;
+        }
+      })
+    ).then((targets) => {
+      if (!cancelled) setStackTargets(targets.filter((target): target is StackTarget => !!target));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, linkedTargets]);
+
+  useEffect(() => {
+    if (!stackTarget) return;
+    const stillAvailable = stackTargets.some((candidate) => {
+      const candidateId = isSegmentLink(candidate) ? candidate.id : candidate.assetId;
+      const selectedId = isSegmentLink(stackTarget) ? stackTarget.id : stackTarget.assetId;
+      return candidateId === selectedId;
+    });
+    if (!stillAvailable) setStackTarget(null);
+  }, [stackTarget, stackTargets]);
 
   // Show which version the render will land on, the way the web viewer does.
   useEffect(() => {
@@ -140,7 +191,7 @@ export const ExportView = ({
         setError("Set valid In and Out points before exporting this video.");
         return;
       }
-      const selectedSegment = stackTarget as SegmentLink | null;
+      const selectedSegment = stackTarget && isSegmentLink(stackTarget) ? stackTarget : null;
       const segmentId = selectedSegment?.id ?? `segment-${Date.now()}-${Math.round(Math.random() * 100000)}`;
       // Hand the job to the provider and get out of the way: the render outlives
       // this dialog, and its progress shows on the Sequences tab.
@@ -233,29 +284,30 @@ export const ExportView = ({
           >
             {(close) => (
               <>
-                {link && (
-                  <MenuRadio
-                    label={`${link.assetName} (sequence link)`}
-                    checked={stackTarget?.assetId === link.assetId}
-                    onSelect={() => {
-                      setStackTarget(link);
-                      close();
-                    }}
-                  />
-                )}
-                {segmentLinks.map((segment) => (
-                  <MenuRadio
-                    key={segment.id}
-                    label={`${segment.assetName} (${segment.inPoint.toFixed(1)}s – ${segment.outPoint.toFixed(1)}s)`}
-                    checked={(stackTarget as SegmentLink | null)?.id === segment.id}
-                    onSelect={() => {
-                      setStackTarget(segment);
-                      close();
-                    }}
-                  />
-                ))}
-                {!link && !segmentLinks.length && (
-                  <div className="menu-field">No assets are linked to this timeline yet.</div>
+                {stackTargets.map((target) => {
+                  const segment = isSegmentLink(target) ? target : null;
+                  const targetId = segment?.id ?? target.assetId;
+                  const selectedId = stackTarget
+                    ? (isSegmentLink(stackTarget) ? stackTarget.id : stackTarget.assetId)
+                    : null;
+                  return (
+                    <MenuRadio
+                      key={targetId}
+                      label={
+                        segment
+                          ? `${target.assetName} (${segment.inPoint.toFixed(1)}s – ${segment.outPoint.toFixed(1)}s)`
+                          : `${target.assetName} (sequence link)`
+                      }
+                      checked={selectedId === targetId}
+                      onSelect={() => {
+                        setStackTarget(target);
+                        close();
+                      }}
+                    />
+                  );
+                })}
+                {!stackTargets.length && (
+                  <div className="menu-field">No current timeline assets were found in FreeFrame.</div>
                 )}
               </>
             )}
@@ -268,9 +320,9 @@ export const ExportView = ({
         <span className="name-field">
           <input
             type="text"
-            value={versionStack && stackTarget ? stackTarget.assetName : name}
-            placeholder={host.sequenceName ?? "Sequence"}
-            disabled={versionStack && !!stackTarget}
+            value={versionStack ? stackTarget?.assetName ?? "" : name}
+            placeholder={versionStack ? "Choose a Version Asset first" : host.sequenceName ?? "Sequence"}
+            disabled={versionStack}
             onChange={(e) => setName(e.target.value)}
           />
           {versionStack && !!nextVersion && (

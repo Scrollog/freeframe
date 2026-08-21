@@ -7,7 +7,13 @@ import { Dropdown, MenuAction } from "./Dropdown";
 import { AppearanceMenu, SortedByMenu, cardMinWidth } from "./BrowseControls";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
 import { useProjectEvents } from "../../lib/freeframe/events";
-import { clearLink, clearMarkers, type AssetLink } from "../../lib/freeframe/host";
+import {
+  clearLink,
+  clearMarkers,
+  getSegmentLinks,
+  type AssetLink,
+  type SegmentLink,
+} from "../../lib/freeframe/host";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { CollectionShareDialog } from "./CollectionShareDialog";
 import { ShareDialog } from "./ShareDialog";
@@ -93,6 +99,7 @@ export const AssetGrid = ({
   const [sharingCollection, setSharingCollection] = useState(false);
   const [renamingId, setRenamingId] = useState("");
   const [draftName, setDraftName] = useState("");
+  const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
 
   const folderId = crumbs[crumbs.length - 1].id;
 
@@ -116,6 +123,24 @@ export const AssetGrid = ({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!host.ok) {
+      setSegmentLinks([]);
+      return;
+    }
+    let cancelled = false;
+    getSegmentLinks()
+      .then((links) => {
+        if (!cancelled) setSegmentLinks(links);
+      })
+      .catch(() => {
+        if (!cancelled) setSegmentLinks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [host.ok, host.sequenceId]);
 
   // The thumbnail only exists once transcoding ends, which is well after the
   // upload returns — so listen for it instead of guessing at a delay.
@@ -380,6 +405,8 @@ export const AssetGrid = ({
         {visible.map((asset) => {
           const duration = durationOf(asset);
           const version = asset.latest_version?.version_number ?? 1;
+          const isSequenceLinked =
+            link?.assetId === asset.id || segmentLinks.some((segment) => segment.assetId === asset.id);
           return (
             <div
               key={asset.id}
@@ -414,7 +441,7 @@ export const AssetGrid = ({
                   )}
                   <span className="badge-row">
                     {version > 1 && <em className="badge version">v{version}</em>}
-                    {link?.assetId === asset.id && (
+                    {isSequenceLinked && (
                       <em
                         className="badge linked"
                         title="Linked to the sequence open in Premiere"
@@ -435,6 +462,21 @@ export const AssetGrid = ({
                     onChange={(event) => setDraftName(event.target.value)}
                     onBlur={() => onRename(asset)}
                     onKeyDown={(event) => {
+                      // The parent card treats Space as "open". Keep the
+                      // keystroke inside the text field so Premiere never
+                      // receives it as its play/pause shortcut either.
+                      event.stopPropagation();
+                      if (event.key === " ") {
+                        event.preventDefault();
+                        const input = event.currentTarget;
+                        const start = input.selectionStart ?? input.value.length;
+                        const end = input.selectionEnd ?? start;
+                        setDraftName((current) =>
+                          `${current.slice(0, start)} ${current.slice(end)}`
+                        );
+                        requestAnimationFrame(() => input.setSelectionRange(start + 1, start + 1));
+                        return;
+                      }
                       if (event.key === "Enter") onRename(asset);
                       if (event.key === "Escape") setRenamingId("");
                     }}

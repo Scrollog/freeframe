@@ -262,6 +262,20 @@ export class FreeFrameApi {
     });
   }
 
+  /** Existing public links for exactly this folder (not its child assets). */
+  folderShares(folderId: string) {
+    return this.request<ShareLink[]>(`/folders/${folderId}/shares`);
+  }
+
+  /** Existing public links for exactly the project's Assets root. */
+  projectShares(projectId: string) {
+    return this.request<ShareLink[]>(`/projects/${projectId}/shares`);
+  }
+
+  revokeShare(token: string) {
+    return this.request<void>(`/share/${encodeURIComponent(token)}`, { method: "DELETE" });
+  }
+
   /** Grants a specific person access, by email. */
   shareWithUser(assetId: string, email: string, permission: SharePermission = "comment") {
     return this.request<{ id: string }>(`/assets/${assetId}/share/user`, {

@@ -552,6 +552,23 @@ def create_project_share_link(
     return link
 
 
+@router.get("/projects/{project_id}/shares", response_model=list[ShareLinkResponse])
+def list_project_root_share_links(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List links that share this project's root, excluding child folders/assets."""
+    project = db.query(Project).filter(Project.id == project_id, Project.deleted_at.is_(None)).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    require_project_role(db, project_id, current_user, ProjectRole.viewer)
+    return db.query(ShareLink).filter(
+        ShareLink.project_id == project_id,
+        ShareLink.deleted_at.is_(None),
+    ).all()
+
+
 @router.post("/projects/{project_id}/share/user", response_model=DirectShareResponse, status_code=status.HTTP_201_CREATED)
 def share_project_with_user(
     project_id: uuid.UUID,

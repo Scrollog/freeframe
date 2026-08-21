@@ -216,15 +216,26 @@ export const syncMarkers = (items: MarkerInput[], offsetSeconds: number): SyncRe
   const wanted: { [id: string]: MarkerInput } = {};
   for (let i = 0; i < items.length; i++) wanted[items[i].id] = items[i];
 
-  // Drop ours that went stale; remember which ids already exist.
+  // Drop ours that went stale or are at the wrong timeline position. The
+  // latter happens when an asset was exported from an In/Out segment: its
+  // comments are relative to the clip, while Premiere markers are absolute.
   const existing: { [id: string]: boolean } = {};
   let removed = 0;
   const current = allMarkers(seq);
   for (let i = 0; i < current.length; i++) {
     const id = idFromMarker(current[i]);
     if (id === null) continue;
-    if (wanted[id]) {
-      existing[id] = true;
+    const item = wanted[id];
+    if (item) {
+      const expectedStart = item.start + offset;
+      // Frame precision is sufficient here; avoid recreating a marker because
+      // Premiere returned an insignificant floating-point difference.
+      if (Math.abs(current[i].start.seconds - expectedStart) <= 0.001) {
+        existing[id] = true;
+      } else {
+        seq.markers.deleteMarker(current[i]);
+        removed++;
+      }
     } else {
       seq.markers.deleteMarker(current[i]);
       removed++;
@@ -391,6 +402,28 @@ export const upsertSegmentLink = (link: SegmentLink): { ok: boolean; error?: str
         fieldName: SEGMENT_LINKS_FIELD,
         fieldId: SEGMENT_LINKS_FIELD_ID,
         value: JSON.stringify(links),
+      },
+    ]);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+};
+
+/** Removes one exported In/Out segment's asset association from this sequence. */
+export const removeSegmentLink = (id: string): { ok: boolean; error?: string } => {
+  const seq = activeSequence();
+  if (!seq) return { ok: false, error: "no_sequence" };
+  if (!seq.projectItem) return { ok: false, error: "no_project_item" };
+  try {
+    const links = getSegmentLinks();
+    const remaining = links.filter((link) => link.id !== id);
+    if (remaining.length === links.length) return { ok: true };
+    setPrMetadata(seq.projectItem, [
+      {
+        fieldName: SEGMENT_LINKS_FIELD,
+        fieldId: SEGMENT_LINKS_FIELD_ID,
+        value: JSON.stringify(remaining),
       },
     ]);
     return { ok: true };

@@ -1616,7 +1616,13 @@ button {
       border-radius: $radius-md;
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
       pointer-events: none;
-      animation: fade 0.12s $ease;
+      visibility: hidden;
+      opacity: 0;
+
+      &.on {
+        visibility: visible;
+        opacity: 1;
+      }
 
       video {
         display: block;
@@ -1625,6 +1631,12 @@ button {
         object-fit: contain;
         background: #000;
         border-radius: $radius-sm;
+        opacity: 0;
+        transition: opacity 0.1s $ease;
+
+        &.ready {
+          opacity: 1;
+        }
       }
 
       span {
@@ -1889,6 +1901,12 @@ button {
     .speed {
       font-family: $font-mono;
       min-width: 34px;
+      padding: 4px 6px;
+    }
+
+    .quality {
+      font-family: $font-mono;
+      min-width: 42px;
       padding: 4px 6px;
     }
 
@@ -2682,18 +2700,21 @@ button {
 }
 
 .form-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 
   .form-label {
-    flex: 0 0 40%;
-    color: $text-primary;
+    min-width: 0;
+    overflow: hidden;
+    color: $text-secondary;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   input,
   .dropdown {
-    flex: 1;
     min-width: 0;
   }
 }
@@ -2704,6 +2725,12 @@ button {
   align-items: center;
   flex: 1;
   min-width: 0;
+
+  // Match the Name input to the dropdown and location controls in this modal.
+  // The generic input background is intentionally darker elsewhere.
+  input {
+    background: $bg-tertiary;
+  }
 
   .version-badge {
     position: absolute;
@@ -3102,6 +3129,63 @@ button {
   margin: 0 -14px -4px;
   padding-left: 14px;
   padding-right: 14px;
+}
+
+/* Folder/project sharing keeps every existing public link in one compact list. */
+.collection-share-dialog {
+  .share-head h3 {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.collection-share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 42px;
+  max-height: 270px;
+  overflow-y: auto;
+}
+
+.collection-share-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    color: $text-secondary;
+    font-size: 11px;
+
+    input {
+      background: $bg-secondary;
+    }
+  }
+}
+
+.collection-share-row {
+  padding: 8px;
+  background: $bg-tertiary;
+  border: 1px solid $border-primary;
+  border-radius: $radius-md;
+
+  .link-box {
+    background: $bg-secondary;
+  }
+}
+
+.collection-share-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+
+  .danger {
+    color: $error;
+  }
 }
 
 // -- location picker ----------------------------------------------------------

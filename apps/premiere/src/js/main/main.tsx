@@ -181,6 +181,7 @@ const Shell = () => {
             asset={asset}
             link={link}
             onLinkChange={onLinkChange}
+            onExport={() => setExporting(true)}
             onBack={() => setTab("browse")}
           />
         )}

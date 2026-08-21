@@ -31,6 +31,19 @@ import {
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
+interface QualityLevel {
+  index: number;
+  height?: number;
+  width?: number;
+  bitrate?: number;
+}
+
+interface HlsController {
+  currentLevel: number;
+  levels: Omit<QualityLevel, "index">[];
+  destroy: () => void;
+}
+
 type TimeMode = "timecode" | "frames" | "seconds";
 
 const TIME_MODES: { key: TimeMode; label: string }[] = [
@@ -93,17 +106,23 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
     const [volume, setVolume] = useState(1);
     const [loop, setLoop] = useState(false);
     const [speed, setSpeed] = useState(1);
+    const [quality, setQuality] = useState<number | null>(null);
+    const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
     const [time, setTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [dragging, setDragging] = useState(false);
     const [timeMode, setTimeMode] = useState<TimeMode>("timecode");
     const [preview, setPreview] = useState<{ x: number; time: number } | null>(null);
+    const [previewReady, setPreviewReady] = useState(false);
     const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
     const scrubRef = useRef<HTMLDivElement>(null);
     const previewRef = useRef<HTMLVideoElement>(null);
     const previewHls = useRef<{ destroy: () => void } | null>(null);
+    const hlsRef = useRef<HlsController | null>(null);
     const previewAttached = useRef(false);
     const lastPreviewSeek = useRef(0);
+    const previewTarget = useRef(0);
+    const lastAnimationUpdate = useRef(0);
 
     useImperativeHandle(ref, () => ({
       seek: (seconds: number) => {
@@ -120,6 +139,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
       setLoading(true);
       setError("");
       setSrc("");
+      setQuality(null);
+      setQualityLevels([]);
       (async () => {
         try {
           const { url } = await api.stream(assetId, versionId || undefined);
@@ -144,28 +165,65 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
         video.src = src;
         return;
       }
+      let disposed = false;
       let destroy = () => {};
       import("hls.js").then(({ default: Hls }) => {
-        if (!videoRef.current) return;
+        if (!videoRef.current || disposed) return;
         if (!Hls.isSupported()) {
           setError("HLS playback is unavailable in this panel.");
           return;
         }
         const hls = new Hls({ enableWorker: false });
+        hlsRef.current = hls;
         hls.loadSource(src);
         hls.attachMedia(videoRef.current);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setQualityLevels(
+            hls.levels.map((level, index) => ({
+              index,
+              height: level.height,
+              width: level.width,
+              bitrate: level.bitrate,
+            }))
+          );
+        });
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (data.fatal) setError(`Playback error: ${data.details}`);
         });
-        destroy = () => hls.destroy();
+        destroy = () => {
+          if (hlsRef.current === hls) hlsRef.current = null;
+          hls.destroy();
+        };
       });
-      return () => destroy();
+      return () => {
+        disposed = true;
+        destroy();
+      };
     }, [src]);
 
     // Rate resets whenever the element gets a new source.
     useEffect(() => {
       if (videoRef.current) videoRef.current.playbackRate = speed;
     }, [speed, src]);
+
+    // CEP emits native `timeupdate` sparsely. Sample the playing video at
+    // 30fps so the playhead moves continuously even on short clips.
+    useEffect(() => {
+      if (!playing) return;
+      let frame = 0;
+      const tick = (now: number) => {
+        const video = videoRef.current;
+        if (video && now - lastAnimationUpdate.current >= 33) {
+          lastAnimationUpdate.current = now;
+          const next = video.currentTime;
+          setTime(next);
+          onTimeUpdate?.(next);
+        }
+        if (video && !video.paused) frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(frame);
+    }, [playing, onTimeUpdate]);
 
     const timed = useMemo(
       () =>
@@ -278,29 +336,44 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
       });
     }, [src]);
 
+    const seekPreview = () => {
+      const node = previewRef.current;
+      if (!node || node.readyState < HTMLMediaElement.HAVE_METADATA) return;
+      const limit = Number.isFinite(node.duration) ? node.duration : previewTarget.current;
+      try {
+        node.currentTime = Math.max(0, Math.min(previewTarget.current, limit));
+        setPreviewReady(true);
+      } catch (e) {
+        // The selected HLS fragment may still be buffering. The next media
+        // event or pointer move retries with the same requested timestamp.
+      }
+    };
+
     const showPreview = (clientX: number) => {
       const bar = scrubRef.current;
       if (!bar || !duration) return;
       ensurePreview();
       const bounds = bar.getBoundingClientRect();
       const at = timeAt(clientX);
+      previewTarget.current = at;
       setPreview({ x: clientX - bounds.left, time: at });
 
       const node = previewRef.current;
       const now = Date.now();
-      if (node && now - lastPreviewSeek.current > 90) {
+      if (
+        node &&
+        node.readyState >= HTMLMediaElement.HAVE_METADATA &&
+        now - lastPreviewSeek.current > 55
+      ) {
         lastPreviewSeek.current = now;
-        try {
-          node.currentTime = at;
-        } catch (e) {
-          // Seeking before the media is ready throws; the next move retries.
-        }
+        seekPreview();
       }
     };
 
     // Tear the preview stream down with the component or a version change.
     useEffect(() => {
       previewAttached.current = false;
+      setPreviewReady(false);
       return () => {
         previewHls.current?.destroy();
         previewHls.current = null;
@@ -308,6 +381,18 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
     }, [src]);
 
     const progress = duration ? (time / duration) * 100 : 0;
+
+    const qualityLabel = (level: QualityLevel) => {
+      if (level.height) return `${level.height}p`;
+      if (level.width) return `${level.width}w`;
+      return `Quality ${level.index + 1}`;
+    };
+
+    const chooseQuality = (level: number | null) => {
+      setQuality(level);
+      const hls = hlsRef.current;
+      if (hls) hls.currentLevel = level ?? -1;
+    };
 
     /** The readout honours the format picked in the time dropdown. */
     const readout = (seconds: number): string => {
@@ -390,21 +475,28 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
             <span className="knob" />
           </div>
 
-          {preview && duration > 0 && (
-            <div
-              className="scrub-preview"
-              // Clamped so the card never hangs off either end of the bar.
-              style={{
-                left: `${Math.min(
-                  Math.max(preview.x, 84),
-                  (scrubRef.current?.clientWidth ?? 0) - 84
-                )}px`,
-              }}
-            >
-              <video ref={previewRef} muted playsInline preload="auto" />
-              <span>{formatTimecode(preview.time, fps)}</span>
-            </div>
-          )}
+          <div
+            className={`scrub-preview${preview && duration > 0 ? " on" : ""}`}
+            // Keep this video mounted between hovers. Recreating its element
+            // while reusing the HLS controller was what caused the black frame.
+            style={{
+              left: `${Math.min(
+                Math.max(preview?.x ?? 84, 84),
+                Math.max(84, (scrubRef.current?.clientWidth ?? 0) - 84)
+              )}px`,
+            }}
+          >
+            <video
+              ref={previewRef}
+              className={previewReady ? "ready" : ""}
+              muted
+              playsInline
+              preload="auto"
+              onLoadedMetadata={seekPreview}
+              onCanPlay={seekPreview}
+            />
+            <span>{formatTimecode(preview?.time ?? 0, fps)}</span>
+          </div>
         </div>
 
         {duration > 0 && (timed.length > 0 || selectedTimeRange) && (
@@ -541,6 +633,37 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
               ))
             }
           </Dropdown>
+          {qualityLevels.length > 1 && (
+            <Dropdown
+              triggerClass="text-btn quality"
+              title="Video quality"
+              trigger={<>{quality === null ? "Auto" : qualityLabel(qualityLevels[quality])}</>}
+            >
+              {(close) => (
+                <>
+                  <MenuRadio
+                    label="Auto"
+                    checked={quality === null}
+                    onSelect={() => {
+                      chooseQuality(null);
+                      close();
+                    }}
+                  />
+                  {qualityLevels.map((level) => (
+                    <MenuRadio
+                      key={level.index}
+                      label={qualityLabel(level)}
+                      checked={quality === level.index}
+                      onSelect={() => {
+                        chooseQuality(level.index);
+                        close();
+                      }}
+                    />
+                  ))}
+                </>
+              )}
+            </Dropdown>
+          )}
           <button
             className={`icon-btn${loop ? " accented" : ""}`}
             onClick={() => setLoop((value) => !value)}

@@ -124,6 +124,7 @@ export const setLink = (link: AssetLink) => evalTS("setLink", link);
 export const clearLink = () => evalTS("clearLink");
 export const getSegmentLinks = () => evalTS("getSegmentLinks") as Promise<SegmentLink[]>;
 export const upsertSegmentLink = (link: SegmentLink) => evalTS("upsertSegmentLink", link);
+export const removeSegmentLink = (id: string) => evalTS("removeSegmentLink", id);
 export const getInOut = () =>
   evalTS("getInOut") as Promise<{ inPoint: number; outPoint: number } | null>;
 
