@@ -1,12 +1,16 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import BigInteger, DateTime, func
+from sqlalchemy import BigInteger, DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 try:
     from ..database import Base
 except ImportError:
     from database import Base
+
+
+DEFAULT_SHARE_METADATA_TITLE = "FreeFrame"
+DEFAULT_SHARE_METADATA_DESCRIPTION = "Collaborative media review and approval platform"
 
 
 class InstanceSettings(Base):
@@ -19,5 +23,11 @@ class InstanceSettings(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     storage_limit_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    share_metadata_title: Mapped[str] = mapped_column(
+        String(255), nullable=False, default=DEFAULT_SHARE_METADATA_TITLE, server_default=DEFAULT_SHARE_METADATA_TITLE
+    )
+    share_metadata_description: Mapped[str] = mapped_column(
+        Text, nullable=False, default=DEFAULT_SHARE_METADATA_DESCRIPTION, server_default=DEFAULT_SHARE_METADATA_DESCRIPTION
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

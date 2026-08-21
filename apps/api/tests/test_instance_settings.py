@@ -1,17 +1,24 @@
 """Tests for instance_settings model, storage service, router, and cap enforcement."""
-from apps.api.models.instance_settings import InstanceSettings
+from apps.api.models.instance_settings import (
+    DEFAULT_SHARE_METADATA_DESCRIPTION,
+    DEFAULT_SHARE_METADATA_TITLE,
+    InstanceSettings,
+)
 
 
 def test_instance_settings_table_shape():
     cols = InstanceSettings.__table__.columns
     assert InstanceSettings.__tablename__ == "instance_settings"
     assert "storage_limit_bytes" in cols
+    assert "share_metadata_title" in cols
+    assert "share_metadata_description" in cols
     # 0 = unlimited default
     assert cols["storage_limit_bytes"].server_default.arg == "0"
     assert cols["storage_limit_bytes"].nullable is False
 
 
 from unittest.mock import MagicMock
+from unittest.mock import patch
 from apps.api.services import storage as storage_service
 
 
@@ -94,6 +101,8 @@ def test_put_settings_admin_updates(client, auth_headers, mock_db, test_user, mo
     body = r.json()
     assert body["storage_limit_bytes"] == 9000
     assert body["storage_used_bytes"] == 42
+    assert body["share_metadata_title"] == DEFAULT_SHARE_METADATA_TITLE
+    assert body["share_metadata_description"] == DEFAULT_SHARE_METADATA_DESCRIPTION
 
 
 def test_put_settings_rejects_negative(client, auth_headers, mock_db, test_user):
@@ -111,11 +120,20 @@ def test_put_settings_rejects_over_bigint_max(client, auth_headers, mock_db, tes
 
 def test_get_settings_member(client, auth_headers, mock_db, test_user, monkeypatch):
     test_user.is_superadmin = False
-    mock_db.first.return_value = MagicMock(storage_limit_bytes=8000)
+    mock_db.first.return_value = MagicMock(
+        storage_limit_bytes=8000,
+        share_metadata_title="Scroll",
+        share_metadata_description="Video review",
+    )
     monkeypatch.setattr(storage_service, "instance_storage_used_bytes", lambda db: 100)
     r = client.get("/instance/settings", headers=auth_headers)
     assert r.status_code == 200
-    assert r.json() == {"storage_limit_bytes": 8000, "storage_used_bytes": 100}
+    assert r.json() == {
+        "storage_limit_bytes": 8000,
+        "storage_used_bytes": 100,
+        "share_metadata_title": "Scroll",
+        "share_metadata_description": "Video review",
+    }
 
 
 def test_get_settings_no_row_is_read_only_and_unlimited(client, auth_headers, mock_db, test_user, monkeypatch):
@@ -125,9 +143,40 @@ def test_get_settings_no_row_is_read_only_and_unlimited(client, auth_headers, mo
     monkeypatch.setattr(storage_service, "instance_storage_used_bytes", lambda db: 100)
     r = client.get("/instance/settings", headers=auth_headers)
     assert r.status_code == 200
-    assert r.json() == {"storage_limit_bytes": 0, "storage_used_bytes": 100}
+    assert r.json() == {
+        "storage_limit_bytes": 0,
+        "storage_used_bytes": 100,
+        "share_metadata_title": DEFAULT_SHARE_METADATA_TITLE,
+        "share_metadata_description": DEFAULT_SHARE_METADATA_DESCRIPTION,
+    }
     mock_db.add.assert_not_called()
     mock_db.commit.assert_not_called()
+
+
+def test_public_share_metadata_uses_instance_settings(client, mock_db):
+    link = MagicMock(visibility="public", password_hash=None)
+    mock_db.first.return_value = MagicMock(
+        share_metadata_title="Scroll Review",
+        share_metadata_description="Review this cut with the team.",
+    )
+
+    with patch("apps.api.routers.share.validate_share_link", return_value=link):
+        response = client.get("/share/short-code/metadata")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "title": "Scroll Review",
+        "description": "Review this cut with the team.",
+    }
+
+
+def test_public_share_metadata_hides_protected_shares(client, mock_db):
+    link = MagicMock(visibility="secure", password_hash=None)
+
+    with patch("apps.api.routers.share.validate_share_link", return_value=link):
+        response = client.get("/share/short-code/metadata")
+
+    assert response.status_code == 404
 
 
 import uuid

@@ -4,8 +4,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 const h = vi.hoisted(() => {
   // Controllable, STABLE `data` reference (mirrors real SWR's cache — a fresh object each
   // render would re-fire the component's effect and clobber the in-progress input).
-  const DEFAULT = { storage_limit_bytes: 0, storage_used_bytes: 1024 ** 3 }
-  return { DEFAULT, data: DEFAULT as { storage_limit_bytes: number; storage_used_bytes: number } | undefined }
+  const DEFAULT = {
+    storage_limit_bytes: 0,
+    storage_used_bytes: 1024 ** 3,
+    share_metadata_title: 'FreeFrame',
+    share_metadata_description: 'Collaborative media review and approval platform',
+  }
+  return { DEFAULT, data: DEFAULT as typeof DEFAULT | undefined }
 })
 vi.mock('swr', () => ({
   default: () => ({ data: h.data, isLoading: false }),
@@ -37,6 +42,20 @@ describe('InstanceSettingsTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() =>
       expect(put).toHaveBeenCalledWith('/instance/settings', { storage_limit_bytes: 0 }),
+    )
+  })
+
+  it('saves the public share preview metadata', async () => {
+    render(<InstanceSettingsTab />)
+    fireEvent.change(screen.getByLabelText(/^title$/i), { target: { value: 'Scroll Review' } })
+    fireEvent.change(screen.getByLabelText(/^description$/i), { target: { value: 'Review this cut.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith('/instance/settings', {
+        storage_limit_bytes: 0,
+        share_metadata_title: 'Scroll Review',
+        share_metadata_description: 'Review this cut.',
+      }),
     )
   })
 

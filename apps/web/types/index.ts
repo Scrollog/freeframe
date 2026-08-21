@@ -60,6 +60,8 @@ export interface User {
 export interface InstanceSettings {
   storage_limit_bytes: number;
   storage_used_bytes: number;
+  share_metadata_title: string;
+  share_metadata_description: string;
 }
 
 export interface Team {

@@ -210,6 +210,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - INTERNAL_API_URL=http://api:8000
       - NODE_ENV=development
       - HOSTNAME=0.0.0.0
       # Docker Desktop on Windows can miss bind-mount file events; poll for

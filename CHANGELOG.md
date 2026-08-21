@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-- **A database migration is required.** Run `alembic upgrade head` (revision `d4e5f6a7b8c9`) to add a secure short code to every existing share link.
+- **A database migration is required.** Run `alembic upgrade head` (revision `e5f6a7b8c9d0`) to add secure short codes to existing share links and configurable public-share metadata.
 
 ### Added
 
 - **Share links now have a short public URL** (`/s/<code>`) backed by a random 96-bit code. The short URL preserves all existing share settings, including passwords, expiration, permissions and revocation.
+- **Administrators can configure the title and description used in public-share previews** from **Admin Dashboard → Instance settings**. Protected shares intentionally do not expose preview metadata.
 
 ## [1.9.0] - 2026-08-16
 

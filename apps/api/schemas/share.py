@@ -91,6 +91,11 @@ class ShareLinkValidateResponse(BaseModel):
     share_session: Optional[str] = None  # Session token for password-protected links
 
 
+class ShareLinkMetadataResponse(BaseModel):
+    title: str
+    description: str
+
+
 class ShareLinkUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None

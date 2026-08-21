@@ -18,6 +18,11 @@ from ..models.folder import Folder
 from ..models.share import AssetShare, ShareLink, ShareLinkItem, SharePermission, ShareLinkActivity, ShareActivityAction
 from ..models.activity import ActivityLog, ActivityAction
 from ..models.branding import ProjectBranding
+from ..models.instance_settings import (
+    DEFAULT_SHARE_METADATA_DESCRIPTION,
+    DEFAULT_SHARE_METADATA_TITLE,
+    InstanceSettings,
+)
 from ..models.asset import AssetVersion, AssetType, MediaFile, ProcessingStatus
 from ..models.comment import Comment
 from ..schemas.share import (
@@ -31,6 +36,7 @@ from ..schemas.share import (
     ShareLinkActivityResponse,
     ShareLinkCreate,
     ShareLinkListItem,
+    ShareLinkMetadataResponse,
     ShareLinkResponse,
     ShareLinkUpdate,
     ShareLinkValidateResponse,
@@ -355,6 +361,32 @@ def _share_link_response(link: ShareLink) -> ShareLinkResponse:
         except Exception:
             response.password_value = None
     return response
+
+
+@router.get(
+    "/share/{token}/metadata",
+    response_model=ShareLinkMetadataResponse,
+    dependencies=[Depends(rate_limit("share_metadata", 30, 60))],
+)
+def get_public_share_metadata(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Metadata exposed to social crawlers for publicly accessible shares only."""
+    link = validate_share_link(db, token)
+    if link.visibility == "secure" or link.password_hash:
+        # Never disclose the title or description of protected content to crawlers.
+        raise HTTPException(status_code=404, detail="Share link not found")
+
+    settings_row = db.query(InstanceSettings).first()
+    return ShareLinkMetadataResponse(
+        title=settings_row.share_metadata_title if settings_row else DEFAULT_SHARE_METADATA_TITLE,
+        description=(
+            settings_row.share_metadata_description
+            if settings_row
+            else DEFAULT_SHARE_METADATA_DESCRIPTION
+        ),
+    )
 
 
 # ── Authenticated share link details (for settings panel) ────────────────────
