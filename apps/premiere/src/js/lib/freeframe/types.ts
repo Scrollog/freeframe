@@ -92,6 +92,8 @@ export interface ShareOptions {
 export interface ShareLink extends Omit<ShareOptions, "password"> {
   id: string;
   token: string;
+  /** Compact public identifier used by the web share route. */
+  short_code?: string;
   title: string;
   is_enabled: boolean;
   has_password: boolean;

@@ -1,15 +1,15 @@
 /** Small display helpers shared by the card grids. */
 
-/** Neutral presets for project tiles in the Premiere-panel grayscale preview. */
+/** Deterministic colour presets: every new project gets a distinct card colour. */
 const GRADIENTS = [
-  ["#3a3a3a", "#303030", "#252525"],
-  ["#454545", "#373737", "#292929"],
-  ["#353535", "#2d2d2d", "#202020"],
-  ["#4a4a4a", "#3b3b3b", "#2e2e2e"],
-  ["#404040", "#343434", "#282828"],
-  ["#383838", "#2f2f2f", "#232323"],
-  ["#4d4d4d", "#3d3d3d", "#303030"],
-  ["#363636", "#2a2a2a", "#1f1f1f"],
+  ["#7c3aed", "#a855f7", "#d946ef"],
+  ["#2563eb", "#4f46e5", "#8b5cf6"],
+  ["#059669", "#0d9488", "#06b6d4"],
+  ["#f97316", "#f59e0b", "#eab308"],
+  ["#e11d48", "#db2777", "#d946ef"],
+  ["#06b6d4", "#3b82f6", "#6366f1"],
+  ["#0ea5e9", "#22d3ee", "#2dd4bf"],
+  ["#ec4899", "#f43f5e", "#fb923c"],
 ];
 
 export const gradientFor = (id: string): string => {

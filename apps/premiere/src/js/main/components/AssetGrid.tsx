@@ -7,8 +7,9 @@ import { Dropdown, MenuAction } from "./Dropdown";
 import { AppearanceMenu, SortedByMenu, cardMinWidth } from "./BrowseControls";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
 import { useProjectEvents } from "../../lib/freeframe/events";
-import type { AssetLink } from "../../lib/freeframe/host";
+import { clearLink, clearMarkers, type AssetLink } from "../../lib/freeframe/host";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
+import { CollectionShareDialog } from "./CollectionShareDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ScrubThumb } from "./ScrubThumb";
 import {
@@ -67,6 +68,7 @@ export const AssetGrid = ({
   onOpenAsset,
   onExport,
   link,
+  onLinkChange,
 }: {
   project: Project;
   onBack: () => void;
@@ -74,8 +76,9 @@ export const AssetGrid = ({
   onExport: () => void;
   /** The asset bound to the sequence open in Premiere, if it is in this grid. */
   link: AssetLink | null;
+  onLinkChange: (link: AssetLink | null) => void;
 }) => {
-  const { api, settings, host } = useApp();
+  const { api, settings, host, updateSettings, refreshHost } = useApp();
   const [tree, setTree] = useState<FolderNode[]>([]);
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: "Assets" }]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -87,6 +90,7 @@ export const AssetGrid = ({
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [confirming, setConfirming] = useState<ConfirmRequest | null>(null);
   const [sharing, setSharing] = useState<Asset | null>(null);
+  const [sharingCollection, setSharingCollection] = useState(false);
   const [renamingId, setRenamingId] = useState("");
   const [draftName, setDraftName] = useState("");
 
@@ -222,6 +226,19 @@ export const AssetGrid = ({
   const onDelete = async (asset: Asset) => {
     try {
       await api.deleteAsset(asset.id);
+      if (link?.assetId === asset.id) {
+        // The active sequence only contains FreeFrame markers for its linked
+        // asset. Keep hand-made Premiere markers intact, then invalidate the
+        // sequence link so the deleted asset cannot re-populate them.
+        try {
+          await clearMarkers();
+        } finally {
+          await clearLink();
+          updateSettings({ markersVisible: false });
+          onLinkChange(null);
+          await refreshHost();
+        }
+      }
       await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -236,6 +253,14 @@ export const AssetGrid = ({
           asset={sharing}
           onClose={() => setSharing(null)}
           onRenamed={() => load(true)}
+        />
+      )}
+      {sharingCollection && (
+        <CollectionShareDialog
+          projectId={project.id}
+          folderId={folderId}
+          name={crumbs[crumbs.length - 1].name}
+          onClose={() => setSharingCollection(false)}
         />
       )}
 
@@ -257,6 +282,22 @@ export const AssetGrid = ({
             </span>
           ))}
         </div>
+        <span className="spacer" />
+        <button
+          className="chip with-icon"
+          onClick={() => setSharingCollection(true)}
+          title={folderId ? "Share this folder" : "Share this project"}
+        >
+          <IconShare width={13} height={13} />
+          Share
+        </button>
+        <button
+          className="primary icon-btn"
+          onClick={onExport}
+          title="Export the active sequence here"
+        >
+          <IconPlus width={15} height={15} />
+        </button>
       </nav>
 
       <div className="view-bar">
@@ -304,13 +345,6 @@ export const AssetGrid = ({
             </button>
             <button className="icon-btn" onClick={() => load(true)} title="Refresh">
               <IconRefresh />
-            </button>
-            <button
-              className="primary icon-btn"
-              onClick={onExport}
-              title="Export the active sequence here"
-            >
-              <IconPlus width={15} height={15} />
             </button>
           </>
         )}
@@ -490,7 +524,9 @@ export const AssetGrid = ({
 
       {!loading && !visible.length && !childFolders.length && (
         <div className="dropzone">
-          <IconCloudUpload width={44} height={44} />
+          <span className="dropzone-icon">
+            <IconCloudUpload width={44} height={44} />
+          </span>
           <p>
             {query.trim()
               ? "Nothing matches that search."

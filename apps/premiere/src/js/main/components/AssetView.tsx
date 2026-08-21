@@ -48,7 +48,6 @@ import {
   IconLink,
   IconMarker,
   IconRename,
-  IconPlus,
   IconReply,
   IconSearch,
   IconSend,
@@ -103,13 +102,11 @@ export const AssetView = ({
   onBack,
   link,
   onLinkChange,
-  onExport,
 }: {
   asset: Asset;
   onBack: () => void;
   link: AssetLink | null;
   onLinkChange: (link: AssetLink | null) => void;
-  onExport: () => void;
 }) => {
   const { api, settings, updateSettings, user, host, refreshHost } = useApp();
   const [name, setName] = useState(asset.name);
@@ -775,13 +772,6 @@ export const AssetView = ({
         <button className="chip with-icon" onClick={() => setSharing(true)}>
           <IconShare width={13} height={13} />
           Share
-        </button>
-        <button
-          className="primary icon-btn"
-          onClick={onExport}
-          title="Export this sequence"
-        >
-          <IconPlus width={15} height={15} />
         </button>
       </nav>
 

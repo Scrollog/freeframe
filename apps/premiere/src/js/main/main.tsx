@@ -8,6 +8,7 @@ import { ExportView } from "./components/ExportView";
 import { SequencesView } from "./components/SequencesView";
 import { SettingsView } from "./components/SettingsView";
 import type { Asset, Project } from "../lib/freeframe/types";
+import { ApiError } from "../lib/freeframe/api";
 import {
   getLink,
   inPremiere,
@@ -43,13 +44,17 @@ const Shell = () => {
       const resolved = stored ?? settings.links[sequenceKey] ?? null;
       if (cancelled) return;
       setLink(resolved);
-      if (resolved && resolved.assetId !== asset?.id) {
+      if (resolved) {
         try {
           const linked = await api.asset(resolved.assetId);
           if (!cancelled) setAsset(linked);
         } catch (e) {
-          // The asset may have been deleted or moved out of reach; keep the
-          // link so the user can see it and unlink deliberately.
+          // A deleted project cascades to its assets. Do not leave a cached
+          // review view on screen when its backing asset no longer exists.
+          if (!cancelled && e instanceof ApiError && e.status === 404) {
+            setAsset(null);
+            setTab((current) => (current === "review" ? "browse" : current));
+          }
         }
       }
     })();
@@ -58,6 +63,27 @@ const Shell = () => {
     };
     // `asset` is deliberately excluded: this reacts to the sequence changing.
   }, [sequenceKey, api]);
+
+  // Selecting Review validates the cached item again. This covers projects
+  // deleted from the web app while the Premiere panel remains open.
+  useEffect(() => {
+    if (tab !== "review" || !asset) return;
+    let cancelled = false;
+    api.asset(asset.id).then(
+      (live) => {
+        if (!cancelled) setAsset(live);
+      },
+      (e) => {
+        if (!cancelled && e instanceof ApiError && e.status === 404) {
+          setAsset(null);
+          setTab("browse");
+        }
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, asset?.id, tab]);
 
   const onLinkChange = (next: AssetLink | null) => {
     setLink(next);
@@ -77,7 +103,7 @@ const Shell = () => {
    */
   const latestExport = settings.exportHistory?.[0];
   useEffect(() => {
-    if (!latestExport || !host.ok || !sequenceKey) return;
+    if (!latestExport || !host.ok || !sequenceKey || latestExport.segmentId) return;
     if (latestExport.sequenceName !== host.sequenceName) return;
     if (link?.assetId === latestExport.assetId) return;
     const next: AssetLink = {
@@ -140,6 +166,7 @@ const Shell = () => {
               onOpenAsset={openAsset}
               onExport={() => setExporting(true)}
               link={link}
+              onLinkChange={onLinkChange}
             />
           ) : (
             <ProjectGrid
@@ -155,7 +182,6 @@ const Shell = () => {
             link={link}
             onLinkChange={onLinkChange}
             onBack={() => setTab("browse")}
-            onExport={() => setExporting(true)}
           />
         )}
         {tab === "sequences" && (

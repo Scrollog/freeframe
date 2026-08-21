@@ -4,7 +4,12 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../state";
-import type { AssetLink } from "../../lib/freeframe/host";
+import {
+  getInOut,
+  getSegmentLinks,
+  type AssetLink,
+  type SegmentLink,
+} from "../../lib/freeframe/host";
 import { findPresets, type Preset } from "../../lib/freeframe/presets";
 import { Dropdown, MenuRadio } from "./Dropdown";
 import { Toggle } from "./Toggle";
@@ -34,24 +39,30 @@ export const ExportView = ({
   const [presetPath, setPresetPath] = useState(settings.presetPath);
   const [markersAsComments, setMarkersAsComments] = useState(false);
   const [keepLocalCopy, setKeepLocalCopy] = useState(false);
-  const [versionStack, setVersionStack] = useState(!!link);
+  const [versionStack, setVersionStack] = useState(false);
+  const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
+  const [stackTarget, setStackTarget] = useState<AssetLink | null>(null);
   const [nextVersion, setNextVersion] = useState(0);
   // The link can outlive its asset — deleted here, on the web, or by someone
   // else. Until the version count comes back we don't know which.
   const [linkedAssetGone, setLinkedAssetGone] = useState(false);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => setName(host.sequenceName ?? ""), [host.sequenceName]);
-  useEffect(() => setVersionStack(!!link), [link]);
+  useEffect(() => {
+    if (!host.ok) return;
+    getSegmentLinks().then(setSegmentLinks).catch(() => setSegmentLinks([]));
+  }, [host.ok]);
 
   // Show which version the render will land on, the way the web viewer does.
   useEffect(() => {
     setNextVersion(0);
     setLinkedAssetGone(false);
-    if (!link) return;
+    if (!stackTarget) return;
     let cancelled = false;
     api
-      .versions(link.assetId)
+      .versions(stackTarget.assetId)
       .then((list) => !cancelled && setNextVersion(list.length + 1))
       .catch(() => {
         if (cancelled) return;
@@ -62,7 +73,7 @@ export const ExportView = ({
     return () => {
       cancelled = true;
     };
-  }, [api, link]);
+  }, [api, stackTarget]);
 
   // Presets come off disk; rescanning is cheap and only happens on demand.
   const loadPresets = () => {
@@ -78,16 +89,16 @@ export const ExportView = ({
   // Default the destination to the linked asset's project — and re-pin it
   // whenever stacking is switched on, since the version has to go there.
   useEffect(() => {
-    if (!link) return;
+    if (!stackTarget) return;
     if (location && !versionStack) return;
-    if (versionStack && location?.projectId === link.projectId) return;
+    if (versionStack && location?.projectId === stackTarget.projectId) return;
     setLocation({
-      projectId: link.projectId,
-      projectName: link.projectName || "Linked project",
+      projectId: stackTarget.projectId,
+      projectName: stackTarget.projectName || "Linked project",
       folderId: null,
       folderName: "Assets",
     });
-  }, [link, location, versionStack]);
+  }, [stackTarget, location, versionStack]);
 
   const grouped = useMemo(() => {
     const groups: Record<string, Preset[]> = {};
@@ -100,6 +111,7 @@ export const ExportView = ({
   const presetName = presets.find((p) => p.file === presetPath)?.name || "None chosen";
 
   const onExport = async () => {
+    if (submitting) return;
     setError("");
     if (!host.ok) {
       setError("Open a sequence in Premiere first.");
@@ -113,26 +125,52 @@ export const ExportView = ({
       setError("Choose an upload location.");
       return;
     }
-    // Hand the job to the provider and get out of the way: the render outlives
-    // this dialog, and its progress shows on the Sequences tab.
-    startExport({
-      name: versionStack && link ? link.assetName : name || host.sequenceName || "Sequence",
-      projectId: location.projectId,
-      projectName: location.projectName,
-      folderId: location.folderId,
-      assetId: versionStack ? link?.assetId : undefined,
-      presetPath,
-      range,
-      markersAsComments,
-      keepLocalCopy,
-      exportDir: settings.exportDir,
-      sequenceName: host.sequenceName ?? "",
-      renderMode: settings.renderMode,
-    });
-    onClose();
+    if (versionStack && !stackTarget) {
+      setError("Choose which timeline asset receives this new version.");
+      return;
+    }
+    if (versionStack && range !== 1) {
+      setError("Version stacks for timeline segments require In/Out Points.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const inOut = range === 1 ? await getInOut() : null;
+      if (range === 1 && (!inOut || inOut.outPoint <= inOut.inPoint)) {
+        setError("Set valid In and Out points before exporting this video.");
+        return;
+      }
+      const selectedSegment = stackTarget as SegmentLink | null;
+      const segmentId = selectedSegment?.id ?? `segment-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+      // Hand the job to the provider and get out of the way: the render outlives
+      // this dialog, and its progress shows on the Sequences tab.
+      await startExport({
+        name:
+          versionStack && stackTarget
+            ? stackTarget.assetName
+            : name || host.sequenceName || "Sequence",
+        projectId: location.projectId,
+        projectName: location.projectName,
+        folderId: location.folderId,
+        assetId: versionStack ? stackTarget?.assetId : undefined,
+        presetPath,
+        range,
+        markersAsComments,
+        keepLocalCopy,
+        exportDir: settings.exportDir,
+        sequenceName: host.sequenceName ?? "",
+        renderMode: settings.renderMode,
+        segment: inOut ? { id: segmentId, ...inOut } : undefined,
+      });
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const busy = false;
+  const busy = submitting;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -167,24 +205,72 @@ export const ExportView = ({
         label="Add to Version Stack"
         hint={
           linkedAssetGone
-            ? `${link?.assetName} is no longer on the server, so there is nothing to stack onto. This export creates a new asset.`
-            : link
-            ? `Uploads on top of ${link.assetName} as a new version instead of creating a separate asset.`
-            : "Available once this sequence has an asset — the first export creates one, or link one from the Review tab."
+            ? "The selected asset is no longer on the server, so this export creates a new asset."
+            : "Choose the asset this In/Out selection should update as a new version."
         }
         checked={versionStack}
-        onChange={setVersionStack}
-        disabled={!link || linkedAssetGone}
+        onChange={(checked) => {
+          setVersionStack(checked);
+          if (!checked) setStackTarget(null);
+        }}
+        disabled={linkedAssetGone}
       />
+
+      {versionStack && (
+        <div className="form-row">
+          <span className="form-label">Version Asset</span>
+          <Dropdown
+            align="right"
+            triggerClass="form-control"
+            trigger={
+              <>
+                <span className="control-value">
+                  {stackTarget ? stackTarget.assetName : "Choose a timeline asset"}
+                </span>
+                <IconChevronDown width={14} height={14} />
+              </>
+            }
+          >
+            {(close) => (
+              <>
+                {link && (
+                  <MenuRadio
+                    label={`${link.assetName} (sequence link)`}
+                    checked={stackTarget?.assetId === link.assetId}
+                    onSelect={() => {
+                      setStackTarget(link);
+                      close();
+                    }}
+                  />
+                )}
+                {segmentLinks.map((segment) => (
+                  <MenuRadio
+                    key={segment.id}
+                    label={`${segment.assetName} (${segment.inPoint.toFixed(1)}s – ${segment.outPoint.toFixed(1)}s)`}
+                    checked={(stackTarget as SegmentLink | null)?.id === segment.id}
+                    onSelect={() => {
+                      setStackTarget(segment);
+                      close();
+                    }}
+                  />
+                ))}
+                {!link && !segmentLinks.length && (
+                  <div className="menu-field">No assets are linked to this timeline yet.</div>
+                )}
+              </>
+            )}
+          </Dropdown>
+        </div>
+      )}
 
       <div className="form-row">
         <span className="form-label">Name</span>
         <span className="name-field">
           <input
             type="text"
-            value={versionStack && link ? link.assetName : name}
+            value={versionStack && stackTarget ? stackTarget.assetName : name}
             placeholder={host.sequenceName ?? "Sequence"}
-            disabled={versionStack}
+            disabled={versionStack && !!stackTarget}
             onChange={(e) => setName(e.target.value)}
           />
           {versionStack && !!nextVersion && (
@@ -199,9 +285,9 @@ export const ExportView = ({
         <span className="form-label">Upload Location</span>
         <button
           className="form-control"
-          disabled={versionStack}
+          disabled={versionStack && !!stackTarget}
           title={
-            versionStack
+            versionStack && !!stackTarget
               ? "A new version always lands on the asset's own project."
               : undefined
           }
@@ -212,7 +298,7 @@ export const ExportView = ({
               ? `${location.projectName} / ${location.folderName}`
               : "Select a FreeFrame location"}
           </span>
-          {!versionStack && <IconRename width={14} height={14} />}
+          {!(versionStack && stackTarget) && <IconRename width={14} height={14} />}
         </button>
       </div>
 

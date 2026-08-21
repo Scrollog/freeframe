@@ -168,10 +168,11 @@ export const listenTS = <Key extends string & keyof EventTS>(
     callback(e.data);
   };
 
-  // remove any existing listeners
-  csi.removeEventListener(fullEvent, thisCallback, null);
-  // add the event listener
+  // The caller owns this exact function reference. CEP can only unregister a
+  // listener with that same reference, so creating a new callback here cannot
+  // remove a previous subscription.
   csi.addEventListener(fullEvent, thisCallback);
+  return () => csi.removeEventListener(fullEvent, thisCallback, null);
 };
 
 /**

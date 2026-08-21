@@ -54,6 +54,8 @@ export interface Settings {
     projectName: string;
     sequenceName: string;
     uploadedAt: string;
+    /** Present when this export belongs to a saved In/Out timeline segment. */
+    segmentId?: string;
   }[];
   /** Links keyed by `<projectPath>::<sequenceId>`, mirroring the .prproj XMP. */
   links: Record<string, AssetLink>;

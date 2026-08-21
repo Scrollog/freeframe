@@ -25,7 +25,7 @@ import {
 
 const PHASE_LABEL: Record<string, string> = {
   queued: "Queued",
-  rendering: "Encoding",
+  rendering: "Uploading",
   uploading: "Uploading",
   done: "Uploaded",
   failed: "Failed",

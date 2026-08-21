@@ -12,6 +12,7 @@ import {
   getScratchPath,
   listAllMarkers,
   renderInPremiere,
+  upsertSegmentLink,
 } from "./host";
 import { uploadFile } from "./upload";
 import type { FreeFrameApi } from "./api";
@@ -40,6 +41,8 @@ export interface ExportRequest {
   sequenceName: string;
   /** "ame" queues Media Encoder; "premiere" renders in-process. */
   renderMode: "ame" | "premiere";
+  /** Set for an In/Out delivery that should be remembered on this timeline. */
+  segment?: { id: string; inPoint: number; outPoint: number };
 }
 
 export interface ExportJob extends ExportRequest {
@@ -63,6 +66,7 @@ export interface ExportHistoryEntry {
   projectName: string;
   sequenceName: string;
   uploadedAt: string;
+  segmentId?: string;
 }
 
 const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
@@ -100,6 +104,9 @@ export const useExportJobs = (
   // The AME callbacks fire outside React and need the live list.
   const jobsRef = useRef<ExportJob[]>([]);
   jobsRef.current = jobs;
+  // Media Encoder can emit a completion callback more than once. A job is
+  // allowed to enter the upload pipeline exactly once.
+  const uploadStarted = useRef<Set<string>>(new Set());
   const finishedRef = useRef(onFinished);
   finishedRef.current = onFinished;
 
@@ -127,6 +134,11 @@ export const useExportJobs = (
         if (job.markersAsComments) {
           const markers = await listAllMarkers();
           for (const marker of markers) {
+            if (
+              job.segment &&
+              (marker.start < job.segment.inPoint || marker.start > job.segment.outPoint)
+            )
+              continue;
             const body = [marker.name, marker.comment]
               .map((part) => (part || "").replace(/\[ff:[^\]]*\]/g, "").trim())
               .filter(Boolean)
@@ -136,11 +148,29 @@ export const useExportJobs = (
               await api.createComment(assetId, {
                 version_id: versionId,
                 body,
-                timecode_start: marker.start,
+                timecode_start: job.segment
+                  ? marker.start - job.segment.inPoint
+                  : marker.start,
               });
             } catch (e) {
               // One rejected marker shouldn't abandon the rest.
             }
+          }
+        }
+
+        if (job.segment) {
+          const saved = await upsertSegmentLink({
+            id: job.segment.id,
+            inPoint: job.segment.inPoint,
+            outPoint: job.segment.outPoint,
+            assetId,
+            assetName: job.name,
+            projectId: job.projectId,
+            projectName: job.projectName,
+            versionId,
+          });
+          if (!saved.ok) {
+            throw new Error(`Could not save this timeline segment: ${saved.error ?? "unknown error"}`);
           }
         }
 
@@ -165,6 +195,7 @@ export const useExportJobs = (
           projectName: job.projectName,
           sequenceName: job.sequenceName,
           uploadedAt: new Date().toISOString(),
+          segmentId: job.segment?.id,
         });
       } catch (e) {
         if (cancelled.current.has(job.id)) {
@@ -181,7 +212,8 @@ export const useExportJobs = (
     [api, patch]
   );
 
-  // Registered once: listenTS cannot remove a listener it added.
+  // The listener callbacks retain no render-specific values: refs provide the
+  // current job list and upload implementation.
   const uploadRef = useRef(upload);
   uploadRef.current = upload;
 
@@ -189,11 +221,11 @@ export const useExportJobs = (
     const find = (jobID: string) =>
       jobsRef.current.find((job) => job.jobID === jobID);
 
-    listenTS("encodeProgress", ({ jobID, progress }) => {
+    const unlistenProgress = listenTS("encodeProgress", ({ jobID, progress }) => {
       const job = find(jobID);
       if (job) patch(job.id, { phase: "rendering", progress: Math.round(progress * 100) });
     });
-    listenTS("encodeError", ({ jobID, message }) => {
+    const unlistenError = listenTS("encodeError", ({ jobID, message }) => {
       const job = find(jobID);
       if (job) {
         patch(job.id, {
@@ -203,10 +235,17 @@ export const useExportJobs = (
         });
       }
     });
-    listenTS("encodeComplete", ({ jobID, outputPath }) => {
+    const unlistenComplete = listenTS("encodeComplete", ({ jobID, outputPath }) => {
       const job = find(jobID);
-      if (job) uploadRef.current(job, outputPath);
+      if (!job || uploadStarted.current.has(job.id)) return;
+      uploadStarted.current.add(job.id);
+      uploadRef.current(job, outputPath);
     });
+    return () => {
+      unlistenProgress();
+      unlistenError();
+      unlistenComplete();
+    };
   }, [patch]);
 
   const start = useCallback(

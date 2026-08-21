@@ -93,7 +93,7 @@ export const ShareDialog = ({
   }, [advanced, usePassphrase, share]);
 
   const webBase = (settings.webUrl || settings.serverUrl).replace(/\/+$/, "");
-  const url = share ? `${webBase}/share/${share.token}` : "";
+  const url = share ? `${webBase}/s/${share.short_code ?? share.token}` : "";
 
   useEffect(() => {
     let cancelled = false;

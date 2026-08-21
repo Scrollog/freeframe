@@ -147,6 +147,7 @@ def test_delete_project(client, auth_headers, mock_db, test_user):
 
     resp = client.delete(f"/projects/{proj.id}", headers=auth_headers)
     assert resp.status_code == 204
+    assert mock_db.query.return_value.filter.return_value.update.call_count == 2
 
 
 def test_update_project(client, auth_headers, mock_db, test_user):

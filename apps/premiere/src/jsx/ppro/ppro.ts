@@ -16,6 +16,8 @@ const MARKER_TAG_CLOSE = "]";
 /** XMP field on the sequence's project item holding the FreeFrame link. */
 const LINK_FIELD = "FreeFrameLink";
 const LINK_FIELD_ID = "FreeFrame.Link";
+const SEGMENT_LINKS_FIELD = "FreeFrameSegmentLinks";
+const SEGMENT_LINKS_FIELD_ID = "FreeFrame.SegmentLinks";
 
 // -- types shared with the panel ----------------------------------------------
 
@@ -61,6 +63,13 @@ export interface AssetLink {
   versionId?: string;
   /** Seconds added to every comment timecode when placing markers. */
   offsetSeconds?: number;
+}
+
+/** A saved In/Out delivery within a shared timeline. */
+export interface SegmentLink extends AssetLink {
+  id: string;
+  inPoint: number;
+  outPoint: number;
 }
 
 // -- small ES3 helpers --------------------------------------------------------
@@ -345,6 +354,61 @@ export const clearLink = (): { ok: boolean; error?: string } => {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
+  }
+};
+
+export const getSegmentLinks = (): SegmentLink[] => {
+  const seq = activeSequence();
+  if (!seq || !seq.projectItem) return [];
+  try {
+    const meta = getPrMetadata(seq.projectItem, [SEGMENT_LINKS_FIELD]);
+    const raw = meta[SEGMENT_LINKS_FIELD];
+    if (!raw || trim(raw) === "") return [];
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.length !== undefined ? parsed as SegmentLink[] : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const upsertSegmentLink = (link: SegmentLink): { ok: boolean; error?: string } => {
+  const seq = activeSequence();
+  if (!seq) return { ok: false, error: "no_sequence" };
+  if (!seq.projectItem) return { ok: false, error: "no_project_item" };
+  try {
+    const links = getSegmentLinks();
+    let replaced = false;
+    for (let i = 0; i < links.length; i++) {
+      if (links[i].id === link.id) {
+        links[i] = link;
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) links.push(link);
+    setPrMetadata(seq.projectItem, [
+      {
+        fieldName: SEGMENT_LINKS_FIELD,
+        fieldId: SEGMENT_LINKS_FIELD_ID,
+        value: JSON.stringify(links),
+      },
+    ]);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+};
+
+/** The current sequence In/Out, in seconds from its start. */
+export const getInOut = (): { inPoint: number; outPoint: number } | null => {
+  const seq = activeSequence();
+  if (!seq) return null;
+  try {
+    const inTime = seq.getInPointAsTime();
+    const outTime = seq.getOutPointAsTime();
+    return { inPoint: inTime.seconds, outPoint: outTime.seconds };
+  } catch (e) {
+    return null;
   }
 };
 

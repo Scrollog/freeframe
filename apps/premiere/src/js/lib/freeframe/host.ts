@@ -113,9 +113,19 @@ export interface AssetLink {
   offsetSeconds?: number;
 }
 
+export interface SegmentLink extends AssetLink {
+  id: string;
+  inPoint: number;
+  outPoint: number;
+}
+
 export const getLink = () => evalTS("getLink") as Promise<AssetLink | null>;
 export const setLink = (link: AssetLink) => evalTS("setLink", link);
 export const clearLink = () => evalTS("clearLink");
+export const getSegmentLinks = () => evalTS("getSegmentLinks") as Promise<SegmentLink[]>;
+export const upsertSegmentLink = (link: SegmentLink) => evalTS("upsertSegmentLink", link);
+export const getInOut = () =>
+  evalTS("getInOut") as Promise<{ inPoint: number; outPoint: number } | null>;
 
 export const getScratchPath = () => evalTS("getScratchPath");
 

@@ -18,6 +18,8 @@ import type {
   Tokens,
 } from "./types";
 
+type ShareCreateOptions = Partial<ShareOptions> & { title?: string };
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -216,8 +218,38 @@ export class FreeFrameApi {
     return this.request<ShareLink[]>(`/assets/${assetId}/shares`);
   }
 
-  createShare(assetId: string, options: Partial<ShareOptions> = {}) {
+  createShare(assetId: string, options: ShareCreateOptions = {}) {
     return this.request<ShareLink>(`/assets/${assetId}/share`, {
+      method: "POST",
+      body: JSON.stringify({
+        permission: "comment",
+        visibility: "public",
+        allow_download: true,
+        show_versions: true,
+        show_watermark: false,
+        ...options,
+      }),
+    });
+  }
+
+  /** Creates a public review link for every asset within one folder. */
+  createFolderShare(folderId: string, options: ShareCreateOptions = {}) {
+    return this.request<ShareLink>(`/folders/${folderId}/share`, {
+      method: "POST",
+      body: JSON.stringify({
+        permission: "comment",
+        visibility: "public",
+        allow_download: true,
+        show_versions: true,
+        show_watermark: false,
+        ...options,
+      }),
+    });
+  }
+
+  /** At the Assets root, sharing applies to the project root instead of a folder. */
+  createProjectShare(projectId: string, options: ShareCreateOptions = {}) {
+    return this.request<ShareLink>(`/projects/${projectId}/share`, {
       method: "POST",
       body: JSON.stringify({
         permission: "comment",
