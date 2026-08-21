@@ -3112,6 +3112,10 @@ button {
     flex: none;
     padding: 4px 8px;
     background: $bg-secondary;
+
+    &::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+    }
   }
 }
 
@@ -3153,7 +3157,7 @@ button {
   flex-direction: column;
   gap: 10px;
 
-  label {
+  > label {
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -3163,6 +3167,24 @@ button {
     input {
       background: $bg-secondary;
     }
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+}
+
+// Toggle labels are their own nested row. Give that row the entire space to
+// the right of its icon so its text and switch align with the other settings.
+.collection-share-toggle {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  width: 100%;
+
+  > .switch-row {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
   }
 }
 

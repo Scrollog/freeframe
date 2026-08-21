@@ -31,7 +31,9 @@ import {
   IconGlobe,
   IconKey,
   IconLink,
+  IconPlus,
   IconRename,
+  IconTrash,
 } from "./Icons";
 
 const VISIBILITY = [
@@ -54,11 +56,15 @@ export const ShareDialog = ({
 }) => {
   const { api, settings } = useApp();
   const [share, setShare] = useState<ShareLink | null>(null);
+  const [shares, setShares] = useState<ShareLink[]>([]);
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(asset.name);
   const [renaming, setRenaming] = useState(false);
   const [invite, setInvite] = useState("");
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+  const [removingShareId, setRemovingShareId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const [advanced, setAdvanced] = useState(false);
@@ -94,26 +100,29 @@ export const ShareDialog = ({
 
   const webBase = (settings.webUrl || settings.serverUrl).replace(/\/+$/, "");
   const url = share ? `${webBase}/s/${share.short_code ?? share.token}` : "";
+  const urlOf = (entry: ShareLink) => `${webBase}/s/${entry.short_code ?? entry.token}`;
+
+  const setEditorShare = (link: ShareLink) => {
+    setShare(link);
+    setDraft({
+      permission: link.permission,
+      visibility: link.visibility,
+      allow_download: link.allow_download,
+      show_versions: link.show_versions,
+      show_watermark: link.show_watermark ?? false,
+      expires_at: link.expires_at ?? null,
+      password: null,
+    });
+    setUsePassphrase(!!link.has_password);
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const existing = await api.shares(asset.id);
-        const live = existing.find((entry) => entry.is_enabled) ?? existing[0];
-        const link = live ?? (await api.createShare(asset.id));
         if (cancelled) return;
-        setShare(link);
-        setDraft({
-          permission: link.permission,
-          visibility: link.visibility,
-          allow_download: link.allow_download,
-          show_versions: link.show_versions,
-          show_watermark: link.show_watermark ?? false,
-          expires_at: link.expires_at ?? null,
-          password: null,
-        });
-        setUsePassphrase(!!link.has_password);
+        setShares(existing);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -130,11 +139,12 @@ export const ShareDialog = ({
       if (event.key !== "Escape") return;
       // Escape backs out of the settings pane before closing the dialog.
       if (advanced) setAdvanced(false);
+      else if (editing) setEditing(false);
       else onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [advanced, onClose]);
+  }, [advanced, editing, onClose]);
 
   const flash = (message: string) => {
     setNotice(message);
@@ -154,7 +164,8 @@ export const ShareDialog = ({
         password: usePassphrase ? draft.password || undefined : undefined,
         expires_at: draft.expires_at || undefined,
       });
-      setShare(next);
+      setEditorShare(next);
+      setShares((current) => [next, ...current]);
       setAdvanced(false);
       flash("New link created with those settings.");
     } catch (e) {
@@ -198,11 +209,112 @@ export const ShareDialog = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyListedShare = (entry: ShareLink) => {
+    navigator.clipboard?.writeText(urlOf(entry));
+    setCopiedShareId(entry.id);
+    setTimeout(() => setCopiedShareId(null), 2000);
+  };
+
+  const createNewLink = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api.createShare(asset.id);
+      setShares((current) => [next, ...current]);
+      setEditorShare(next);
+      setAdvanced(false);
+      setEditing(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeShare = async (entry: ShareLink) => {
+    setRemovingShareId(entry.id);
+    setError("");
+    try {
+      await api.revokeShare(entry.token);
+      setShares((current) => current.filter((currentShare) => currentShare.id !== entry.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemovingShareId(null);
+    }
+  };
+
   const summary = share
     ? `Anyone with the link can view${share.permission !== "view" ? ", comment" : ""}${
         share.allow_download ? " and download" : ""
       }.`
     : "…";
+
+  if (!editing) {
+    return (
+      <div className="scrim" onClick={onClose}>
+        <div
+          className="share-dialog collection-share-dialog"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="share-head">
+            <h3>Share {asset.name}</h3>
+            <button className="primary with-icon" onClick={createNewLink} disabled={busy}>
+              <IconPlus width={14} height={14} />
+              New link
+            </button>
+          </div>
+          <p className="muted">Manage the links that share this video.</p>
+
+          <div className="collection-share-list">
+            {busy && <p className="muted">Loading links…</p>}
+            {!busy && !shares.length && (
+              <p className="muted">No links yet. Create one when you are ready to share this video.</p>
+            )}
+            {shares.map((entry) => {
+              const entryUrl = urlOf(entry);
+              return (
+                <div className="collection-share-row" key={entry.id}>
+                  <div className="link-box">
+                    <input type="text" readOnly value={entryUrl} />
+                    {copiedShareId === entry.id && (
+                      <span className="copied">
+                        Link copied! <IconCheck width={12} height={12} />
+                      </span>
+                    )}
+                    <button className="icon-btn" onClick={() => copyListedShare(entry)} title="Copy link">
+                      <IconLink width={15} height={15} />
+                    </button>
+                  </div>
+                  <div className="collection-share-actions">
+                    <button className="text-btn" onClick={() => openLinkInBrowser(entryUrl)} title="Open link">
+                      <IconExternal width={14} height={14} />
+                      Open
+                    </button>
+                    <button
+                      className="text-btn danger"
+                      onClick={() => removeShare(entry)}
+                      disabled={removingShareId === entry.id}
+                      title="Delete link"
+                    >
+                      <IconTrash width={14} height={14} />
+                      {removingShareId === entry.id ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {error && <p className="error">{error}</p>}
+          <div className="share-foot">
+            <span className="spacer" />
+            <button className="primary" onClick={onClose}>Done</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="scrim" onClick={onClose}>

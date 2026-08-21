@@ -172,15 +172,15 @@ export const CollectionShareDialog = ({
                 ))}
               </Dropdown>
             </div>
-            <div className="share-setting">
+            <div className="share-setting collection-share-toggle">
               <IconComment width={15} height={15} />
               <Toggle label="Allow comments" checked={draft.permission !== "view"} onChange={(value) => setDraft((current) => ({ ...current, permission: value ? "comment" : "view" }))} />
             </div>
-            <div className="share-setting">
+            <div className="share-setting collection-share-toggle">
               <IconDownload width={15} height={15} />
               <Toggle label="Allow downloads" checked={draft.allow_download} onChange={(value) => setDraft((current) => ({ ...current, allow_download: value }))} />
             </div>
-            <div className="share-setting">
+            <div className="share-setting collection-share-toggle">
               <IconKey width={15} height={15} />
               <Toggle label="Passphrase" checked={usePassphrase} onChange={(value) => { setUsePassphrase(value); if (!value) setDraft((current) => ({ ...current, password: null })); }} />
             </div>
@@ -190,7 +190,7 @@ export const CollectionShareDialog = ({
               <span>Expiration date</span>
               <input type="date" value={draft.expires_at ? draft.expires_at.slice(0, 10) : ""} onChange={(event) => setDraft((current) => ({ ...current, expires_at: event.target.value ? new Date(`${event.target.value}T23:59:59`).toISOString() : null }))} />
             </div>
-            <div className="share-setting">
+            <div className="share-setting collection-share-toggle">
               <IconDroplet width={15} height={15} />
               <Toggle label="Watermark" checked={draft.show_watermark} onChange={(value) => setDraft((current) => ({ ...current, show_watermark: value }))} />
             </div>
