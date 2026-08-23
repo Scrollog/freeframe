@@ -196,6 +196,7 @@ def create_share_link(
         password_hash=password_hash,
         password_encrypted=password_encrypted,
         permission=body.permission,
+        visibility=body.visibility,
         allow_download=body.allow_download,
         show_versions=body.show_versions,
         show_watermark=body.show_watermark,
