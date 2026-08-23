@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/login', '/setup']
-const PUBLIC_PREFIXES = ['/invite/', '/share/']
+const PUBLIC_PREFIXES = ['/invite/', '/share/', '/s/']
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-function isPublicRoute(pathname: string): boolean {
+export function isPublicRoute(pathname: string): boolean {
   if (PUBLIC_ROUTES.includes(pathname)) return true
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true
   return false
