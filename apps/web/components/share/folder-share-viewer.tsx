@@ -16,6 +16,8 @@ import {
   Layers,
   PanelRightClose,
   PanelRightOpen,
+  PanelBottomClose,
+  PanelBottomOpen,
   GripHorizontal,
   ArrowLeft,
   CheckCircle2,
@@ -892,9 +894,14 @@ function ShareReviewInner({
         </div>
         <div className="flex items-center gap-2">
           {showVersions && VersionSwitcher && versions.length > 0 && (
-            <div className="hidden md:block">
-              <VersionSwitcher versions={versions} />
-            </div>
+            <>
+              <div className="md:hidden">
+                <VersionSwitcher versions={versions} compact />
+              </div>
+              <div className="hidden md:block">
+                <VersionSwitcher versions={versions} />
+              </div>
+            </>
           )}
           {allowDownload && (
             <button className="flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-text-inverse bg-accent hover:bg-accent-hover transition-colors" onClick={() => handleDownload(token, asset.id, shareSession)}>
@@ -902,7 +909,9 @@ function ShareReviewInner({
             </button>
           )}
           <button onClick={() => setSidebarOpen(v => !v)} className="flex items-center justify-center h-8 w-8 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors">
-            {sidebarOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            {mobileSplit.isMobile
+              ? sidebarOpen ? <PanelBottomClose className="h-4 w-4" /> : <PanelBottomOpen className="h-4 w-4" />
+              : sidebarOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
           </button>
         </div>
       </div>
@@ -955,7 +964,7 @@ function ShareReviewInner({
               role="separator"
               aria-label="Resize media and comments"
               aria-orientation="horizontal"
-              className="absolute -top-4 left-1/2 flex h-8 w-16 -translate-x-1/2 touch-none cursor-row-resize items-center justify-center"
+              className="absolute -top-3 left-0 flex h-6 w-full touch-none cursor-row-resize items-center justify-center"
               onPointerDown={mobileSplit.onPointerDown}
               onPointerMove={mobileSplit.onPointerMove}
               onPointerUp={mobileSplit.onPointerUp}

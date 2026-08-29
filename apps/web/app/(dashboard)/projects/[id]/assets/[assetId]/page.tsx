@@ -445,6 +445,9 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
           <div className="hidden md:block">
             <VersionSwitcher versions={versions} />
           </div>
+          <div className="md:hidden">
+            <VersionSwitcher versions={versions} compact />
+          </div>
           {asset && canCompare(asset.asset_type, versions) && (
             <button
               onClick={() => {
@@ -510,7 +513,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
               role="separator"
               aria-label="Resize media and comments"
               aria-orientation="horizontal"
-              className="absolute -top-4 left-1/2 flex h-8 w-16 -translate-x-1/2 touch-none cursor-row-resize items-center justify-center"
+              className="absolute -top-3 left-0 flex h-6 w-full touch-none cursor-row-resize items-center justify-center"
               onPointerDown={mobileSplit.onPointerDown}
               onPointerMove={mobileSplit.onPointerMove}
               onPointerUp={mobileSplit.onPointerUp}

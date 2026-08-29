@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { AlertCircle, Loader2, CheckCircle2, ChevronDown } from 'lucide-react'
+import { AlertCircle, Loader2, CheckCircle2, ChevronDown, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useReviewStore } from '@/stores/review-store'
 import type { AssetVersion, AssetVersionStatus } from '@/types'
@@ -36,9 +36,10 @@ export const versionStatusConfig: Record<
 interface VersionSwitcherProps {
   versions: AssetVersion[]
   className?: string
+  compact?: boolean
 }
 
-export function VersionSwitcher({ versions, className }: VersionSwitcherProps) {
+export function VersionSwitcher({ versions, className, compact = false }: VersionSwitcherProps) {
   const currentVersion = useReviewStore((s) => s.currentVersion)
   const setCurrentVersion = useReviewStore((s) => s.setCurrentVersion)
 
@@ -60,12 +61,19 @@ export function VersionSwitcher({ versions, className }: VersionSwitcherProps) {
 
   return (
     <div className={cn('flex items-center gap-1.5', className)}>
-      <span className="text-xs text-text-tertiary shrink-0">Version:</span>
+      {!compact && <span className="text-xs text-text-tertiary shrink-0">Version:</span>}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors outline-none">
-            <span>v{currentVersion?.version_number ?? latest.version_number}</span>
-            {inFlightCfg && (
+          <button
+            aria-label="Select version"
+            title="Versions"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors outline-none',
+              compact ? 'h-8 w-8 justify-center' : 'px-2.5 py-1',
+            )}
+          >
+            {compact ? <Layers className="h-4 w-4" /> : <span>v{currentVersion?.version_number ?? latest.version_number}</span>}
+            {inFlightCfg && !compact && (
               <span
                 data-testid="version-status-indicator"
                 className="inline-flex items-center gap-1 text-[11px] text-white/90"
