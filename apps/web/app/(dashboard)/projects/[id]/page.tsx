@@ -665,7 +665,13 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         )}
-        <div className="px-5 pt-3 pb-6 space-y-3">
+        <div
+          className={cn(
+            showShareLinks && selectedShareLink
+              ? 'flex min-h-0 flex-1'
+              : 'px-5 pt-3 pb-6 space-y-3',
+          )}
+        >
           {/* Asset grid, Share links, or Trash view */}
           {showShareLinks && !selectedShareLink ? (
             <ShareLinksTable

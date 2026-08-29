@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   XCircle,
+  Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildCommentNumbers } from '@/lib/comment-numbers'
@@ -29,6 +30,7 @@ import { getGuestCommentToken, removeGuestCommentToken } from '@/lib/guest-comme
 import { useReview, type CreateCommentPayload } from '@/components/review/review-provider'
 import { useReviewStore } from '@/stores/review-store'
 import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
+import { CommentThreadConnector } from '@/components/comments/comment-thread-connector'
 import type {
   SharePermission,
   ShareLinkAppearance,
@@ -53,6 +55,7 @@ interface FolderShareViewerProps {
   title: string
   description: string | null
   createdByName?: string | null
+  createdByAvatarUrl?: string | null
   viewerName?: string | null
   permission: SharePermission
   allowDownload: boolean
@@ -60,6 +63,130 @@ interface FolderShareViewerProps {
   appearance: ShareLinkAppearance
   branding: ShareBranding | null
   onAssetClick?: (assetId: string) => void
+  embedded?: boolean
+  editableHeader?: boolean
+  onTitleCommit?: (title: string) => void
+  onDescriptionCommit?: (description: string | null) => void
+}
+
+function EditableShareTitle({
+  value,
+  editable,
+  onCommit,
+  className,
+}: {
+  value: string
+  editable: boolean
+  onCommit?: (value: string) => void
+  className: string
+}) {
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value)
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [editing, value])
+
+  const commit = () => {
+    const next = draft.trim()
+    if (!next) {
+      setDraft(value)
+    } else if (next !== value) {
+      onCommit?.(next)
+    }
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+          }
+          if (event.key === 'Escape') {
+            setDraft(value)
+            setEditing(false)
+          }
+        }}
+        aria-label="Share link title"
+        className={cn(className, 'w-full rounded-sm bg-black/15 px-1 -mx-1 outline-none ring-1 ring-accent')}
+      />
+    )
+  }
+
+  return (
+    <h1
+      className={cn(className, editable && 'cursor-text rounded-sm transition-colors hover:bg-black/10')}
+      onClick={editable ? () => setEditing(true) : undefined}
+    >
+      {draft}
+    </h1>
+  )
+}
+
+function EditableShareDescription({
+  value,
+  editable,
+  onCommit,
+  className,
+}: {
+  value: string | null
+  editable: boolean
+  onCommit?: (value: string | null) => void
+  className: string
+}) {
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value ?? '')
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value ?? '')
+  }, [editing, value])
+
+  const commit = () => {
+    const next = draft.trim()
+    if (next !== (value ?? '')) onCommit?.(next || null)
+    setEditing(false)
+  }
+
+  if (!value && !editable) return null
+  if (editing) {
+    return (
+      <textarea
+        autoFocus
+        rows={2}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setDraft(value ?? '')
+            setEditing(false)
+          }
+        }}
+        aria-label="Share link description"
+        className={cn(className, 'w-full resize-none rounded-sm bg-black/15 px-1 -mx-1 outline-none ring-1 ring-accent')}
+      />
+    )
+  }
+
+  return (
+    <p
+      className={cn(
+        className,
+        editable && 'cursor-text rounded-sm transition-colors hover:bg-black/10',
+        !draft && 'text-text-tertiary italic',
+      )}
+      onClick={editable ? () => setEditing(true) : undefined}
+    >
+      {draft || 'Add a description…'}
+    </p>
+  )
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -278,9 +405,158 @@ interface AssetGridCardProps {
   aspectClass?: string
   thumbnailScale?: 'fit' | 'fill'
   showCardInfo?: boolean
+  accentColor: string
 }
 
-function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, onSelect, onOpen, aspectClass = 'aspect-[16/10]', thumbnailScale = 'fill', showCardInfo = true }: AssetGridCardProps) {
+function ScrubbableVideoThumbnail({
+  asset,
+  token,
+  shareSession,
+  thumbnailScale,
+  onThumbnailError,
+}: {
+  asset: FolderShareAssetItem
+  token: string
+  shareSession?: string | null
+  thumbnailScale: 'fit' | 'fill'
+  onThumbnailError: () => void
+}) {
+  const [hovering, setHovering] = React.useState(false)
+  const [ready, setReady] = React.useState(false)
+  const [ratio, setRatio] = React.useState(0)
+  const videoRef = React.useRef<HTMLVideoElement>(null)
+  const hlsRef = React.useRef<{ destroy: () => void } | null>(null)
+  const seekFrameRef = React.useRef<number | null>(null)
+  const queuedRatioRef = React.useRef(0)
+  const streamUrlRef = React.useRef<string | null>(null)
+
+  const teardown = React.useCallback(() => {
+    if (seekFrameRef.current !== null) cancelAnimationFrame(seekFrameRef.current)
+    seekFrameRef.current = null
+    hlsRef.current?.destroy()
+    hlsRef.current = null
+    const video = videoRef.current
+    if (video) {
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+    }
+    setReady(false)
+    setRatio(0)
+  }, [])
+
+  React.useEffect(() => {
+    if (!hovering) {
+      teardown()
+      return
+    }
+
+    let cancelled = false
+    const loadPreview = async () => {
+      try {
+        let streamUrl = streamUrlRef.current
+        if (!streamUrl) {
+          const params = new URLSearchParams({ _: '1' })
+          if (shareSession) params.set('share_session', shareSession)
+          const headers: Record<string, string> = {}
+          try {
+            const accessToken = localStorage.getItem('ff_access_token')
+            if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+          } catch {}
+          const response = await fetch(`${API_URL}/share/${token}/stream/${asset.id}?${params}`, { headers })
+          if (!response.ok) throw new Error('Could not load preview')
+          const data = await response.json() as { url?: string }
+          if (!data.url) throw new Error('Preview URL missing')
+          streamUrl = data.url.startsWith('/') ? `${API_URL}${data.url}` : data.url
+          streamUrlRef.current = streamUrl
+        }
+        const video = videoRef.current
+        if (cancelled || !video || !streamUrl) return
+
+        if (!streamUrl.includes('.m3u8')) {
+          video.src = streamUrl
+          video.load()
+          return
+        }
+        const { default: Hls } = await import('hls.js')
+        if (cancelled || !videoRef.current) return
+        if (Hls.isSupported()) {
+          const hls = new Hls({ enableWorker: false, startLevel: 0, capLevelToPlayerSize: true })
+          hls.loadSource(streamUrl)
+          hls.attachMedia(videoRef.current)
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (!cancelled) setReady(true)
+          })
+          hlsRef.current = hls
+        } else {
+          videoRef.current.src = streamUrl
+          videoRef.current.load()
+        }
+      } catch {
+        // Keep the static thumbnail when the preview cannot be loaded.
+      }
+    }
+    void loadPreview()
+    return () => { cancelled = true }
+  }, [asset.id, hovering, shareSession, teardown, token])
+
+  React.useEffect(() => () => teardown(), [teardown])
+
+  const seekToRatio = (nextRatio: number) => {
+    queuedRatioRef.current = nextRatio
+    if (seekFrameRef.current !== null) return
+    seekFrameRef.current = requestAnimationFrame(() => {
+      seekFrameRef.current = null
+      const video = videoRef.current
+      if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return
+      const nextTime = queuedRatioRef.current * video.duration
+      try {
+        if ('fastSeek' in video && typeof video.fastSeek === 'function') video.fastSeek(nextTime)
+        else video.currentTime = nextTime
+      } catch {}
+    })
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse') return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const nextRatio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+    setRatio(nextRatio)
+    if (ready) seekToRatio(nextRatio)
+  }
+
+  return (
+    <div
+      className="absolute inset-0 cursor-ew-resize"
+      onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHovering(true) }}
+      onPointerLeave={() => setHovering(false)}
+      onPointerMove={handlePointerMove}
+    >
+      {asset.thumbnail_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={asset.thumbnail_url}
+          alt={asset.name}
+          className={cn('h-full w-full transition-transform duration-200 group-hover:scale-[1.02]', thumbnailScale === 'fill' ? 'object-cover' : 'object-contain')}
+          onError={onThumbnailError}
+        />
+      )}
+      {hovering && (
+        <video
+          ref={videoRef}
+          muted
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={() => setReady(true)}
+          className={cn('absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-100', ready && 'opacity-100')}
+        />
+      )}
+      {hovering && ready && <span className="pointer-events-none absolute inset-y-0 z-0 w-px bg-accent" style={{ left: `${ratio * 100}%` }} />}
+    </div>
+  )
+}
+
+function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, onSelect, onOpen, aspectClass = 'aspect-[16/10]', thumbnailScale = 'fill', showCardInfo = true, accentColor }: AssetGridCardProps) {
   const TypeIcon = getAssetTypeIcon(asset.asset_type)
   const [imgError, setImgError] = React.useState(false)
 
@@ -289,10 +565,11 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
       className={cn(
         'group flex flex-col rounded-lg border overflow-hidden transition-all cursor-pointer',
         isSelected
-          ? 'border-accent/60 ring-1 ring-accent/40'
+          ? ''
           : 'border-border hover:border-border-focus',
         'bg-bg-tertiary hover:bg-bg-hover',
       )}
+      style={isSelected ? { borderColor: accentColor } : undefined}
       onClick={() => onSelect(asset)}
       onDoubleClick={() => onOpen(asset)}
       onPointerUp={(event) => {
@@ -301,14 +578,17 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
     >
       {/* Thumbnail */}
       <div className={cn('w-full relative overflow-hidden bg-bg-tertiary', aspectClass)}>
-        {asset.thumbnail_url && !imgError ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={asset.thumbnail_url}
-            alt={asset.name}
-            className={cn('h-full w-full transition-transform duration-200 group-hover:scale-[1.02]', thumbnailScale === 'fill' ? 'object-cover' : 'object-contain')}
-            onError={() => setImgError(true)}
+        {asset.thumbnail_url && !imgError && asset.asset_type === 'video' ? (
+          <ScrubbableVideoThumbnail
+            asset={asset}
+            token={token}
+            shareSession={shareSession}
+            thumbnailScale={thumbnailScale}
+            onThumbnailError={() => setImgError(true)}
           />
+        ) : asset.thumbnail_url && !imgError ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={asset.thumbnail_url} alt={asset.name} className={cn('h-full w-full transition-transform duration-200 group-hover:scale-[1.02]', thumbnailScale === 'fill' ? 'object-cover' : 'object-contain')} onError={() => setImgError(true)} />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bg-hover text-text-secondary">
@@ -319,7 +599,7 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
 
         {/* Version count badge — top left (only when multiple versions exist) */}
         {(asset.version_count ?? 1) > 1 && (
-          <div className="absolute top-2 left-2 flex items-center gap-1 bg-bg-primary/80 backdrop-blur-sm rounded-md px-1.5 py-0.5" title={`${asset.version_count} versions`}>
+          <div className="absolute z-10 top-2 left-2 flex items-center gap-1 bg-bg-primary/80 backdrop-blur-sm rounded-md px-1.5 py-0.5" title={`${asset.version_count} versions`}>
             <Layers className="h-3 w-3 text-text-primary" />
             <span className="text-[10px] font-medium text-text-primary tabular-nums">{asset.version_count}</span>
           </div>
@@ -327,7 +607,7 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
 
         {/* Comment count badge — bottom left */}
         {asset.comment_count > 0 && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-bg-primary/80 backdrop-blur-sm rounded-md px-1.5 py-0.5">
+          <div className="absolute z-10 bottom-2 left-2 flex h-6 min-w-11 items-center justify-center gap-1 rounded-md bg-black/85 px-1.5">
             <MessageSquare className="h-3 w-3 text-text-primary" />
             <span className="text-[10px] font-medium text-text-primary">{asset.comment_count}</span>
           </div>
@@ -335,7 +615,7 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
 
         {/* Duration badge — bottom right (video/audio) */}
         {asset.duration_seconds != null && asset.duration_seconds > 0 && (
-          <div className="absolute bottom-2 right-2 bg-bg-primary/80 backdrop-blur-sm rounded-md px-1.5 py-0.5">
+          <div className="absolute z-10 bottom-2 right-2 flex h-6 min-w-11 items-center justify-center rounded-md bg-black/85 px-1.5">
             <span className="text-[10px] font-medium text-text-primary tabular-nums">
               {formatDuration(asset.duration_seconds)}
             </span>
@@ -345,7 +625,7 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
         {/* Download button overlay */}
         {allowDownload && (
           <button
-            className="absolute top-2 right-2 flex items-center justify-center h-6 w-6 rounded-md bg-bg-primary/70 hover:bg-bg-primary/90 text-text-primary backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute z-10 top-2 right-2 flex items-center justify-center h-6 w-6 rounded-md bg-bg-primary/70 hover:bg-bg-primary/90 text-text-primary backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
             onClick={(e) => {
               e.stopPropagation()
               handleDownload(token, asset.id, shareSession)
@@ -381,21 +661,25 @@ interface SectionHeaderProps {
   totalSize: string | null
   expanded: boolean
   onToggle: () => void
+  actions?: React.ReactNode
 }
 
-function SectionHeader({ label, count, totalSize, expanded, onToggle }: SectionHeaderProps) {
+function SectionHeader({ label, count, totalSize, expanded, onToggle, actions }: SectionHeaderProps) {
   return (
-    <button className="flex items-center gap-2 py-2 w-full text-left group" onClick={onToggle}>
-      <ChevronDown
-        className={cn('h-4 w-4 shrink-0 transition-transform text-text-tertiary', !expanded && '-rotate-90')}
-      />
-      <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-        {count} {label}
-      </span>
-      {totalSize && (
-        <span className="text-xs text-text-tertiary">&middot; {totalSize}</span>
-      )}
-    </button>
+    <div className="flex items-center gap-3 py-2">
+      <button className="flex flex-1 items-center gap-2 text-left group" onClick={onToggle}>
+        <ChevronDown
+          className={cn('h-4 w-4 shrink-0 transition-transform text-text-tertiary', !expanded && '-rotate-90')}
+        />
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+          {count} {label}
+        </span>
+        {totalSize && (
+          <span className="text-xs text-text-tertiary">&middot; {totalSize}</span>
+        )}
+      </button>
+      {actions}
+    </div>
   )
 }
 
@@ -518,31 +802,33 @@ function ShareCommentList({ comments, loading, canComment, onReply }: ShareComme
   }
 
   return (
-    <div className="px-4 py-3 space-y-1">
+    <div className="space-y-2 px-3 py-3">
       {comments.map((comment) => {
         const name = comment.author?.name || comment.guest_author?.name || comment.guest_name || comment.author_name || 'User'
         const color = getAvatarColor(name)
         return (
-          <div key={comment.id} className="py-3 border-b border-border last:border-0">
+          <CommentThreadConnector key={comment.id} active={Boolean(comment.replies?.length)}>
+          <div className="relative rounded-lg border border-white/[0.06] bg-bg-primary/30 px-3 transition-colors hover:border-white/15 hover:bg-white/[0.02]">
             {/* Comment header */}
-            <div className="flex items-start gap-3">
-              <div className={cn('h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-text-primary shrink-0', color)}>
+              <div className="relative z-[1] flex items-start gap-2.5 py-3">
+              <div data-comment-thread-avatar className={cn('h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-text-primary shrink-0', color)}>
                 {name.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-text-primary">{name}</span>
-                  <span className="text-2xs text-text-tertiary">{formatShortDate(comment.created_at)}</span>
+                  <span className="text-[13px] font-semibold text-text-primary">{name}</span>
+                  <span className="text-[11px] text-text-tertiary">{formatShortDate(comment.created_at)}</span>
                   <span className="ml-auto text-2xs text-text-tertiary">#{commentNumbers.get(comment.id)}</span>
+                  <Globe className="h-3.5 w-3.5 text-text-tertiary" />
                 </div>
-                <p className="text-sm text-text-secondary mt-1 leading-relaxed">{comment.body}</p>
                 {comment.timecode_start != null && (
-                  <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-amber-400 font-mono bg-amber-500/20 px-1.5 py-0.5 rounded">
+                  <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] text-amber-400 font-mono bg-amber-500/20 px-1.5 py-0.5 rounded-md">
                     {Math.floor(comment.timecode_start / 60)}:{String(Math.floor(comment.timecode_start % 60)).padStart(2, '0')}
                   </span>
                 )}
+                <p className="mt-1.5 text-[13px] leading-relaxed text-text-secondary">{comment.body}</p>
                 {canComment && onReply && (
-                  <button onClick={() => onReply(comment.id)} className="block mt-1.5 text-xs text-text-tertiary hover:text-text-primary transition-colors">
+                  <button onClick={() => onReply(comment.id)} className="block mt-2 text-xs text-text-tertiary hover:text-text-primary transition-colors">
                     Reply
                   </button>
                 )}
@@ -551,21 +837,22 @@ function ShareCommentList({ comments, loading, canComment, onReply }: ShareComme
 
             {/* Nested replies */}
             {comment.replies && comment.replies.length > 0 && (
-              <div className="ml-11 mt-2 space-y-2 border-l-2 border-border pl-3">
+              <div className="mt-0.5">
                 {comment.replies.map((r) => {
                   const rName = r.author?.name || r.guest_author?.name || r.guest_name || r.author_name || 'User'
                   const rColor = getAvatarColor(rName)
                   return (
-                    <div key={r.id} className="flex items-start gap-2.5 py-1">
-                      <div className={cn('h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold text-text-primary shrink-0', rColor)}>
+                    <div key={r.id} className="relative z-[1] flex items-start gap-2.5 py-3">
+                      <div data-comment-thread-avatar className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-text-inverse', rColor)}>
                         {rName.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-text-primary">{rName}</span>
-                          <span className="text-2xs text-text-tertiary">{formatShortDate(r.created_at)}</span>
+                          <span className="text-[13px] font-semibold text-text-primary">{rName}</span>
+                          <span className="text-[11px] text-text-tertiary">{formatShortDate(r.created_at)}</span>
+                          <Globe className="ml-auto h-3.5 w-3.5 text-text-tertiary" />
                         </div>
-                        <p className="text-xs text-text-secondary mt-0.5">{r.body}</p>
+                        <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">{r.body}</p>
                       </div>
                     </div>
                   )
@@ -573,6 +860,7 @@ function ShareCommentList({ comments, loading, canComment, onReply }: ShareComme
               </div>
             )}
           </div>
+          </CommentThreadConnector>
         )
       })}
     </div>
@@ -687,6 +975,7 @@ interface AssetViewerProps {
   permission: SharePermission
   allowDownload: boolean
   showVersions: boolean
+  parentPath?: string
   onBack: () => void
 }
 
@@ -720,7 +1009,7 @@ function HlsVideo({ src, className }: { src: string; className?: string }) {
   return <video ref={videoRef} controls className={className} />
 }
 
-function AssetViewer({ token, shareSession, asset, permission, allowDownload, showVersions, onBack }: AssetViewerProps) {
+function AssetViewer({ token, shareSession, asset, permission, allowDownload, showVersions, parentPath, onBack }: AssetViewerProps) {
   // Use the same ReviewProvider as the project review page, but with shareToken
   // This gives us the same video player, image viewer, comment panel, etc.
   return (
@@ -733,6 +1022,7 @@ function AssetViewer({ token, shareSession, asset, permission, allowDownload, sh
         permission={permission}
         allowDownload={allowDownload}
         showVersions={showVersions}
+        parentPath={parentPath}
         onBack={onBack}
       />
     </div>
@@ -741,9 +1031,9 @@ function AssetViewer({ token, shareSession, asset, permission, allowDownload, sh
 
 /** Lazy-imported review components to avoid circular deps */
 export function ShareReviewScreen({
-  token, shareSession, assetId, assetName, permission, allowDownload, showVersions, onBack,
+  token, shareSession, assetId, assetName, permission, allowDownload, showVersions, parentPath, onBack,
 }: {
-  token: string; shareSession?: string | null; assetId: string; assetName: string; permission: SharePermission; allowDownload: boolean; showVersions: boolean; onBack?: () => void
+  token: string; shareSession?: string | null; assetId: string; assetName: string; permission: SharePermission; allowDownload: boolean; showVersions: boolean; parentPath?: string; onBack?: () => void
 }) {
   const [ReviewProvider, setProvider] = React.useState<any>(null)
   const [VideoPlayer, setVideoPlayer] = React.useState<any>(null)
@@ -789,6 +1079,7 @@ export function ShareReviewScreen({
         permission={permission}
         allowDownload={allowDownload}
         showVersions={showVersions}
+        parentPath={parentPath}
         onBack={onBack}
         VideoPlayer={VideoPlayer}
         ImageViewer={ImageViewer}
@@ -802,7 +1093,7 @@ export function ShareReviewScreen({
 }
 
 function ShareReviewInner({
-  token, shareSession, assetName, permission, allowDownload, showVersions, onBack,
+  token, shareSession, assetName, permission, allowDownload, showVersions, parentPath, onBack,
   VideoPlayer, ImageViewer, AudioPlayer, CommentPanel, CommentInput, VersionSwitcher,
 }: any) {
   const { asset, versions, isLoading, comments, refetchComments, addComment } = useReview()
@@ -890,7 +1181,10 @@ function ShareReviewInner({
               <ArrowLeft className="h-4 w-4" />
             </button>
           )}
-          <span className="text-[13px] font-medium text-text-primary truncate">{assetName}</span>
+          <span className="text-[13px] font-medium text-text-primary truncate">
+            {parentPath && <span className="text-text-secondary">{parentPath} <span className="px-1 text-text-tertiary">/</span></span>}
+            {assetName}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {showVersions && VersionSwitcher && versions.length > 0 && (
@@ -908,7 +1202,13 @@ function ShareReviewInner({
               <Download className="h-3 w-3" /> Download
             </button>
           )}
-          <button onClick={() => setSidebarOpen(v => !v)} className="mobile-touch-target flex items-center justify-center h-8 w-8 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors">
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            className={cn(
+              'mobile-touch-target flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-bg-hover',
+              sidebarOpen ? 'text-accent hover:text-accent' : 'text-text-secondary hover:text-text-primary',
+            )}
+          >
             {mobileSplit.isMobile
               ? sidebarOpen ? <PanelBottomClose className="h-4 w-4" /> : <PanelBottomOpen className="h-4 w-4" />
               : sidebarOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
@@ -1132,7 +1432,7 @@ function GuestIdentityPrompt({ onSave, onCancel }: { onSave: (name: string, emai
           <button
             disabled={!name.trim() || !email.trim()}
             onClick={() => onSave(name.trim(), email.trim())}
-            className="px-4 py-1.5 rounded-md bg-accent text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
+            className="px-4 py-1.5 rounded-md bg-accent text-xs font-medium text-text-inverse hover:bg-accent/90 disabled:opacity-50 transition-colors"
           >
             Continue
           </button>
@@ -1151,6 +1451,7 @@ export function FolderShareViewer({
   title,
   description,
   createdByName,
+  createdByAvatarUrl,
   viewerName,
   permission,
   allowDownload,
@@ -1158,6 +1459,10 @@ export function FolderShareViewer({
   appearance,
   branding,
   onAssetClick,
+  embedded = false,
+  editableHeader = false,
+  onTitleCommit,
+  onDescriptionCommit,
 }: FolderShareViewerProps) {
   // Build share_session query param for all API calls
   const sessionParam = shareSession ? `&share_session=${encodeURIComponent(shareSession)}` : ''
@@ -1166,14 +1471,22 @@ export function FolderShareViewer({
   const [searchQuery, setSearchQuery] = React.useState('')
   const [foldersExpanded, setFoldersExpanded] = React.useState(true)
   const [assetsExpanded, setAssetsExpanded] = React.useState(true)
-  const [panelOpen, setPanelOpen] = React.useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches)
+  const [panelOpen, setPanelOpen] = React.useState(false)
   const [viewingAsset, setViewingAsset] = React.useState<FolderShareAssetItem | null>(null)
+  const headerAppearance = {
+    key: appearance.header_banner_key,
+    url: appearance.header_banner_url ?? null,
+    positionX: appearance.header_banner_position_x ?? 50,
+    positionY: appearance.header_banner_position_y ?? 50,
+    zoom: appearance.header_banner_zoom ?? 1,
+  }
 
-  // Set page title
+  // The embedded preview must not replace the dashboard's browser title.
   React.useEffect(() => {
+    if (embedded) return
     document.title = title ? `${title} – FreeFrame` : 'FreeFrame'
     return () => { document.title = 'FreeFrame' }
-  }, [title])
+  }, [embedded, title])
   const [selectedAsset, setSelectedAsset] = React.useState<FolderShareAssetItem | null>(null)
 
   const [assets, setAssets] = React.useState<FolderShareAssetItem[]>([])
@@ -1186,6 +1499,12 @@ export function FolderShareViewer({
 
   const accentColor = appearance.accent_color ?? branding?.primary_color ?? '#6366f1'
   const isDark = appearance.theme !== 'light'
+  const previewThemeStyle = React.useMemo(() => ({
+    '--accent': accentColor,
+    '--accent-hover': `color-mix(in srgb, ${accentColor} 82%, ${isDark ? 'white' : 'black'})`,
+    '--accent-muted': `color-mix(in srgb, ${accentColor} 22%, transparent)`,
+    '--border-focus': accentColor,
+  }) as React.CSSProperties, [accentColor, isDark])
   const cardSize = appearance.card_size ?? 'm'
   const aspectRatio = appearance.aspect_ratio ?? 'landscape'
   const thumbnailScale = appearance.thumbnail_scale ?? 'fill'
@@ -1206,40 +1525,6 @@ export function FolderShareViewer({
     : aspectRatio === 'portrait'
     ? 'aspect-[3/4]'
     : 'aspect-[16/10]'
-
-  // Apply share link theme (overrides user's global theme on the share page)
-  React.useEffect(() => {
-    const theme = isDark ? 'dark' : 'light'
-    document.documentElement.setAttribute('data-theme', theme)
-    return () => {
-      // Restore user's theme when leaving share page
-      try {
-        const stored = JSON.parse(localStorage.getItem('ff-theme') || '{}')
-        const userTheme = stored?.state?.theme || 'dark'
-        const resolved = userTheme === 'system'
-          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-          : userTheme
-        document.documentElement.setAttribute('data-theme', resolved)
-      } catch {
-        document.documentElement.setAttribute('data-theme', 'dark')
-      }
-    }
-  }, [isDark])
-
-  // Apply accent color via injected <style> tag — more reliable than inline CSS var override
-  React.useEffect(() => {
-    const styleId = 'ff-share-accent'
-    let el = document.getElementById(styleId) as HTMLStyleElement | null
-    if (!el) {
-      el = document.createElement('style')
-      el.id = styleId
-      document.head.appendChild(el)
-    }
-    el.textContent = `:root { --accent: ${accentColor} !important; }`
-    return () => {
-      document.getElementById(styleId)?.remove()
-    }
-  }, [accentColor])
 
   // Whether clicking opens viewer
   const openInViewer = appearance.open_in_viewer !== false
@@ -1358,34 +1643,54 @@ export function FolderShareViewer({
   }
   const summaryText = summaryParts.join(', ')
 
-  // Current folder name for breadcrumb display
-  const currentTitle = breadcrumbs.length > 0
-    ? breadcrumbs[breadcrumbs.length - 1].name
-    : (title || folderName)
+  const locationItems = [
+    { id: null as string | null, name: title || folderName },
+    ...breadcrumbs,
+  ]
+  const assetParentPath = locationItems.map((item) => item.name).join(' / ')
+
 
   // Asset viewer overlay
   if (viewingAsset) {
     return (
-      <AssetViewer
-        token={token}
-        shareSession={shareSession}
-        asset={viewingAsset}
-        permission={permission}
-        allowDownload={allowDownload}
-        showVersions={showVersions}
-        onBack={() => setViewingAsset(null)}
-      />
+      <div
+        data-theme={isDark ? 'dark' : 'light'}
+        style={previewThemeStyle}
+        className={cn('bg-bg-primary text-text-primary', embedded ? 'h-full min-h-0' : 'min-h-screen')}
+      >
+        <AssetViewer
+          token={token}
+          shareSession={shareSession}
+          asset={viewingAsset}
+          permission={permission}
+          allowDownload={allowDownload}
+          showVersions={showVersions}
+          parentPath={assetParentPath}
+          onBack={() => setViewingAsset(null)}
+        />
+      </div>
     )
   }
 
   return (
-    <div className="flex-1 min-h-screen flex flex-col bg-bg-primary text-text-primary">
+    <div
+      data-theme={isDark ? 'dark' : 'light'}
+      style={previewThemeStyle}
+      className={cn('flex flex-col bg-bg-primary text-text-primary', embedded ? 'h-full min-h-0 w-full' : 'flex-1 min-h-screen')}
+    >
       {/* ─── Top Bar (Frame.io style) ─────────────────────────────────── */}
       <header className="flex items-center justify-between border-b border-border px-4 h-12 bg-bg-secondary shrink-0">
         {/* Left: viewer profile + breadcrumb */}
         <div className="flex items-center gap-3 min-w-0 flex-1">
           {/* Viewer avatar (logged-in user) or project avatar */}
-          {viewerName ? (
+          {createdByAvatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={createdByAvatarUrl}
+              alt={createdByName ? `Profile photo of ${createdByName}` : ''}
+              className="h-7 w-7 rounded-full object-cover shrink-0"
+            />
+          ) : viewerName ? (
             <div className="relative group shrink-0">
               <button className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-text-primary bg-green-600 hover:ring-2 hover:ring-green-400/50 transition-all">
                 {viewerName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
@@ -1441,25 +1746,48 @@ export function FolderShareViewer({
             </div>
           )}
 
-          {/* Breadcrumb */}
-          <span className="text-[13px] font-medium text-text-primary truncate">{currentTitle}</span>
+          {/* Location breadcrumb */}
+          <nav className="flex min-w-0 items-center text-[13px] font-medium">
+            {locationItems.map((item, index) => {
+              const isCurrent = index === locationItems.length - 1
+              return (
+                <React.Fragment key={item.id ?? 'root'}>
+                  {index > 0 && <span className="px-1.5 text-text-tertiary">/</span>}
+                  <button
+                    onClick={() => !isCurrent && navigateToBreadcrumb(index - 1)}
+                    className={cn(
+                      'truncate',
+                      isCurrent
+                        ? 'pointer-events-none text-text-primary'
+                        : 'text-text-secondary hover:text-text-primary hover:underline',
+                    )}
+                  >
+                    {item.name}
+                  </button>
+                </React.Fragment>
+              )
+            })}
+          </nav>
         </div>
 
         {/* Right: Download All + panel toggle */}
         <div className="flex items-center gap-2 shrink-0">
           {allowDownload && (
             <button
-              className="flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-accent hover:bg-accent-hover transition-colors"
+              className="flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-text-inverse bg-accent hover:bg-accent-hover transition-colors"
               onClick={() => handleDownloadAll(token, currentSubfolderId ?? null, shareSession)}
             >
               <Download className="h-3 w-3" />
               Download All
             </button>
           )}
-          <button
-            onClick={() => setPanelOpen((v) => !v)}
-            className="flex items-center justify-center h-7 w-7 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-            title={panelOpen ? 'Hide panel' : 'Show panel'}
+            <button
+              onClick={() => setPanelOpen((v) => !v)}
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-bg-hover',
+                panelOpen ? 'text-accent hover:text-accent' : 'text-text-secondary hover:text-text-primary',
+              )}
+              title={panelOpen ? 'Hide panel' : 'Show panel'}
           >
             {panelOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
           </button>
@@ -1471,62 +1799,77 @@ export function FolderShareViewer({
         {/* ─── Left: folder contents ─────────────────────────────────── */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Sub-header: title, summary, breadcrumb, search */}
-          <div className="border-b border-border px-5 py-4">
-            <h1 className="text-lg font-bold text-text-primary leading-tight">{title || folderName}</h1>
-            {!loading && (
+          <div>
+            {breadcrumbs.length === 0 && headerAppearance.url ? (
+              <div className="relative mb-4 aspect-[16/4] min-h-24 overflow-hidden bg-bg-tertiary sm:min-h-28">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={headerAppearance.url}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-150"
+                  style={{
+                    objectPosition: `${headerAppearance.positionX}% ${headerAppearance.positionY}%`,
+                    transform: `scale(${headerAppearance.zoom})`,
+                    transformOrigin: `${headerAppearance.positionX}% ${headerAppearance.positionY}%`,
+                  }}
+                />
+                <div
+                  className={cn(
+                    'absolute inset-0 bg-gradient-to-t',
+                    isDark
+                      ? 'from-bg-primary via-bg-primary/65 to-black/10'
+                      : 'from-bg-primary via-bg-primary/80 to-bg-primary/10',
+                  )}
+                />
+                <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
+                  <EditableShareTitle
+                    value={title || folderName}
+                    editable={editableHeader}
+                    onCommit={onTitleCommit}
+                    className="text-2xl font-bold leading-tight text-text-primary sm:text-3xl"
+                  />
+                  {!loading && (
+                    <p className="mt-1.5 text-xs text-text-secondary">
+                      {createdByName && <>Created by {createdByName} &middot; </>}
+                      {summaryText || 'Empty folder'}
+                    </p>
+                  )}
+                  <EditableShareDescription
+                    value={description}
+                    editable={editableHeader}
+                    onCommit={onDescriptionCommit}
+                    className="mt-1 max-w-2xl line-clamp-2 text-sm text-text-secondary"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="relative px-5 pt-4">
+                <EditableShareTitle
+                  value={title || folderName}
+                  editable={editableHeader}
+                  onCommit={onTitleCommit}
+                  className="text-lg font-bold leading-tight text-text-primary"
+                />
+                <EditableShareDescription
+                  value={description}
+                  editable={editableHeader}
+                  onCommit={onDescriptionCommit}
+                  className="mt-1 text-sm text-text-secondary line-clamp-2"
+                />
+              </div>
+            )}
+            {!loading && !headerAppearance.url && (
+              <div className="px-5 pt-3">
               <p className="mt-0.5 text-sm text-text-tertiary">
                 {createdByName && <>Created by {createdByName} &middot; </>}
                 {summaryText || 'Empty folder'}
               </p>
-            )}
-
-            {/* Breadcrumb + Search row */}
-            <div className="flex items-center gap-3 mt-3 flex-wrap">
-              <nav className="flex items-center gap-1 text-sm flex-1 min-w-0">
-                <button
-                  className={cn(
-                    'shrink-0 font-medium hover:underline text-text-secondary hover:text-text-primary',
-                    breadcrumbs.length === 0 && 'text-text-primary pointer-events-none',
-                  )}
-                  onClick={() => navigateToBreadcrumb(-1)}
-                >
-                  Root
-                </button>
-                {breadcrumbs.map((crumb, i) => (
-                  <React.Fragment key={crumb.id}>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-                    <button
-                      className={cn(
-                        'truncate max-w-[160px] hover:underline',
-                        i === breadcrumbs.length - 1
-                          ? 'text-text-primary font-medium pointer-events-none'
-                          : 'text-text-secondary hover:text-text-primary',
-                      )}
-                      onClick={() => navigateToBreadcrumb(i)}
-                      title={crumb.name}
-                    >
-                      {crumb.name}
-                    </button>
-                  </React.Fragment>
-                ))}
-              </nav>
-
-              {/* Search */}
-              <div className="relative flex items-center shrink-0">
-                <Search className="absolute left-2.5 h-3.5 w-3.5 pointer-events-none text-text-tertiary" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search assets…"
-                  className="h-8 w-52 pl-8 pr-3 rounded-md text-sm border bg-bg-tertiary border-border text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-border-focus"
-                />
               </div>
-            </div>
+            )}
           </div>
 
           {/* Main scrollable content */}
-          <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="flex-1 overflow-y-auto px-5 pb-5 pt-0">
             {loading ? (
               <div className="flex items-center justify-center py-24">
                 <Loader2 className="h-8 w-8 animate-spin text-text-tertiary" />
@@ -1577,6 +1920,19 @@ export function FolderShareViewer({
                       totalSize={totalAssetSize}
                       expanded={assetsExpanded}
                       onToggle={() => setAssetsExpanded((v) => !v)}
+                      actions={
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-tertiary" />
+                          <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search assets…"
+                            aria-label="Search assets"
+                            className="h-8 w-52 rounded-md border border-border bg-bg-tertiary pl-8 pr-3 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+                          />
+                        </div>
+                      }
                     />
 
                     {assetsExpanded && (
@@ -1596,6 +1952,7 @@ export function FolderShareViewer({
                                 aspectClass={aspectClass}
                                 thumbnailScale={thumbnailScale}
                                 showCardInfo={showCardInfo}
+                                accentColor={accentColor}
                               />
                             ))}
                           </div>
@@ -1681,21 +2038,6 @@ export function FolderShareViewer({
             )}
           </div>
 
-          {/* Footer */}
-          <footer className="border-t border-border px-5 py-3 shrink-0">
-            <div className="flex items-center justify-between">
-              {branding?.custom_footer ? (
-                <p className="text-xs text-text-tertiary">{branding.custom_footer}</p>
-              ) : (
-                <span />
-              )}
-              {!loading && (
-                <p className="text-xs tabular-nums text-text-tertiary">
-                  {assets.length + subfolders.length} item{assets.length + subfolders.length === 1 ? '' : 's'}
-                </p>
-              )}
-            </div>
-          </footer>
         </div>
 
         {/* ─── Right Panel ───────────────────────────────────────────── */}

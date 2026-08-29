@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import * as Switch from "@radix-ui/react-switch";
 import useSWR from "swr";
 import {
@@ -22,11 +23,15 @@ import {
   Layers,
   Droplets,
   Globe,
+  Image as ImageIcon,
+  Pencil,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { ShareLinkActivityPanel } from "@/components/projects/share-link-activity";
+import { FolderShareViewer } from "@/components/share/folder-share-viewer";
 import type { ShareLink, ShareLinkAppearance } from "@/types";
 
 // ─── Shared hook for share link data + mutations ────────────────────────────
@@ -78,6 +83,10 @@ function useShareLinkData(token: string) {
     aspect_ratio: "landscape",
     thumbnail_scale: "fit",
     show_card_info: true,
+    header_banner_key: null,
+    header_banner_position_x: 50,
+    header_banner_position_y: 50,
+    header_banner_zoom: 1,
   };
 
   const updateAppearance = React.useCallback(
@@ -104,30 +113,42 @@ function Section({
   title,
   icon,
   defaultOpen = true,
+  open: controlledOpen,
+  onOpenChange,
+  id,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
   defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  id?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const isOpen = controlledOpen ?? open;
+  const toggle = () => {
+    const next = !isOpen;
+    if (controlledOpen === undefined) setOpen(next);
+    onOpenChange?.(next);
+  };
 
   return (
-    <div className="border-b border-border">
+    <div id={id} className="border-b border-border">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
         className="flex w-full items-center gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors"
       >
         {icon}
         <span className="flex-1 text-left">{title}</span>
-        {open ? (
+        {isOpen ? (
           <ChevronDown className="h-3.5 w-3.5" />
         ) : (
           <ChevronRight className="h-3.5 w-3.5" />
         )}
       </button>
-      {open && <div className="px-4 pb-4 space-y-3">{children}</div>}
+      {isOpen && <div className="px-4 pb-4 space-y-3">{children}</div>}
     </div>
   );
 }
@@ -540,6 +561,201 @@ function CopyLinkButton({ text }: { text: string }) {
   );
 }
 
+// ─── Header banner editor ───────────────────────────────────────────────────
+
+type BannerDraft = {
+  key: string | null;
+  url: string | null;
+  positionX: number;
+  positionY: number;
+  zoom: number;
+};
+
+function HeaderBannerDialog({
+  open,
+  onOpenChange,
+  token,
+  appearance,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  token: string;
+  appearance: ShareLinkAppearance;
+  onSaved: () => Promise<unknown>;
+}) {
+  const [draft, setDraft] = React.useState<BannerDraft>({
+    key: null,
+    url: null,
+    positionX: 50,
+    positionY: 50,
+    zoom: 1,
+  });
+  const [uploading, setUploading] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const objectUrlRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setError(null);
+    setDraft({
+      key: appearance.header_banner_key,
+      url: appearance.header_banner_url ?? null,
+      positionX: appearance.header_banner_position_x ?? 50,
+      positionY: appearance.header_banner_position_y ?? 50,
+      zoom: appearance.header_banner_zoom ?? 1,
+    });
+  }, [open, appearance]);
+
+  React.useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+  }, []);
+
+  const updateDraft = (patch: Partial<BannerDraft>) =>
+    setDraft((current) => ({ ...current, ...patch }));
+
+  const uploadImage = async (file: File) => {
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!supportedTypes.includes(file.type)) {
+      setError("Use uma imagem JPG, PNG ou WebP.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("A imagem do banner deve ter no máximo 10 MB.");
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    try {
+      const upload = await api.post<{ upload_url: string; key: string }>(
+        `/share/${token}/header-banner-upload`,
+        { content_type: file.type },
+      );
+      const result = await fetch(upload.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!result.ok) throw new Error("Upload failed");
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = URL.createObjectURL(file);
+      updateDraft({ key: upload.key, url: objectUrlRef.current });
+    } catch {
+      setError("Não foi possível enviar a imagem. Tente novamente.");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/share/${token}`, {
+        appearance: {
+          ...appearance,
+          header_banner_key: draft.key,
+          header_banner_position_x: draft.positionX,
+          header_banner_position_y: draft.positionY,
+          header_banner_zoom: draft.zoom,
+        },
+      });
+      await onSaved();
+      onOpenChange(false);
+    } catch {
+      setError("Não foi possível salvar o cabeçalho. Tente novamente.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const close = (nextOpen: boolean) => {
+    if (!saving && !uploading) onOpenChange(nextOpen);
+  };
+
+  const percent = Math.round(draft.zoom * 100);
+
+  return (
+    <Dialog.Root open={open} onOpenChange={close}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-border bg-bg-secondary shadow-2xl focus:outline-none">
+          <div className="flex items-start justify-between border-b border-border px-6 py-5">
+            <div>
+              <Dialog.Title className="text-lg font-semibold text-text-primary">Editar cabeçalho</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-text-tertiary">Escolha a imagem e ajuste o enquadramento que aparece no topo do link.</Dialog.Description>
+            </div>
+            <Dialog.Close className="rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors" aria-label="Fechar editor">
+              <X className="h-5 w-5" />
+            </Dialog.Close>
+          </div>
+
+          <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_248px]">
+            <div className="space-y-3">
+              <div className="overflow-hidden rounded-xl border border-border bg-bg-primary shadow-inner">
+                <div className="relative aspect-[16/5] overflow-hidden bg-gradient-to-br from-bg-tertiary to-bg-primary">
+                  {draft.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={draft.url} alt="Prévia do banner" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: `${draft.positionX}% ${draft.positionY}%`, transform: `scale(${draft.zoom})`, transformOrigin: `${draft.positionX}% ${draft.positionY}%` }} />
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 text-text-tertiary">
+                      <ImageIcon className="h-8 w-8" />
+                      <span className="text-sm">Nenhuma imagem selecionada</span>
+                    </div>
+                  )}
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-bg-primary via-bg-primary/60 to-black/5" />
+                  <div className="absolute bottom-4 left-5">
+                    <p className="text-sm font-semibold text-white">Prévia do cabeçalho</p>
+                    <p className="mt-0.5 text-xs text-white/65">O degradê mantém a leitura sobre a imagem.</p>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-text-tertiary">Use uma imagem horizontal para obter o melhor resultado.</p>
+            </div>
+
+            <div className="space-y-5 rounded-xl border border-border bg-bg-tertiary/40 p-4">
+              <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadImage(file); }} />
+              <button onClick={() => inputRef.current?.click()} disabled={uploading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-medium text-text-inverse hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 transition-colors">
+                <ImageIcon className="h-4 w-4" />
+                {uploading ? "Enviando…" : draft.url ? "Trocar imagem" : "Escolher imagem"}
+              </button>
+
+              <div className="space-y-4">
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-secondary"><SlidersHorizontal className="h-3.5 w-3.5" /> Enquadramento</p>
+                {([
+                  ["Posição horizontal", "positionX", draft.positionX, "%"],
+                  ["Posição vertical", "positionY", draft.positionY, "%"],
+                  ["Zoom", "zoom", percent, "%"],
+                ] as const).map(([label, field, value, suffix]) => (
+                  <label key={field} className="block space-y-1.5">
+                    <span className="flex justify-between text-xs text-text-secondary"><span>{label}</span><span className="text-text-primary">{value}{suffix}</span></span>
+                    <input type="range" min={field === "zoom" ? 100 : 0} max={field === "zoom" ? 200 : 100} step={field === "zoom" ? 1 : 1} value={value} onChange={(event) => updateDraft({ [field]: field === "zoom" ? Number(event.target.value) / 100 : Number(event.target.value) })} className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-bg-hover accent-accent" />
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => updateDraft({ positionX: 50, positionY: 50, zoom: 1 })} className="flex-1 rounded-md border border-border px-2 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors">Centralizar</button>
+                <button onClick={() => updateDraft({ key: null, url: null, positionX: 50, positionY: 50, zoom: 1 })} disabled={!draft.key} className="rounded-md border border-border px-2.5 py-2 text-xs font-medium text-text-secondary hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 transition-colors" title="Remover imagem"><X className="h-4 w-4" /></button>
+              </div>
+              {error && <p className="text-xs text-red-400">{error}</p>}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-border px-6 py-4">
+            <button onClick={() => close(false)} disabled={saving || uploading} className="rounded-lg px-4 py-2 text-sm font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50 transition-colors">Cancelar</button>
+            <button onClick={() => void save()} disabled={saving || uploading} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-inverse hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 transition-colors">{saving ? "Salvando…" : "Salvar alterações"}</button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface ShareLinkContentProps {
@@ -563,7 +779,7 @@ export function ShareLinkContent({
   frontendUrl,
   onUpdate,
 }: ShareLinkContentProps) {
-  const { shareLink, immediateUpdate } = useShareLinkData(token);
+  const { shareLink, immediateUpdate, appearance } = useShareLinkData(token);
 
   const [localTitle, setLocalTitle] = React.useState("");
   const [localDescription, setLocalDescription] = React.useState("");
@@ -653,7 +869,29 @@ export function ShareLinkContent({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 min-w-0 overflow-hidden bg-bg-primary">
+      <FolderShareViewer
+        embedded
+        editableHeader
+        token={token}
+        folderName={shareLink.title || "Shared Link"}
+        title={shareLink.title || "Shared Link"}
+        description={shareLink.description}
+        permission={shareLink.permission}
+        allowDownload={shareLink.allow_download}
+        showVersions={shareLink.show_versions}
+        appearance={appearance}
+        branding={null}
+        onTitleCommit={(title) => {
+          setLocalTitle(title);
+          void immediateUpdate({ title }).then(() => onUpdate?.());
+        }}
+        onDescriptionCommit={(description) => {
+          setLocalDescription(description ?? "");
+          void immediateUpdate({ description }).then(() => onUpdate?.());
+        }}
+      />
+      <div className="hidden">
       <div className="p-6 space-y-6">
         {/* Back button */}
         <button
@@ -665,18 +903,27 @@ export function ShareLinkContent({
         </button>
 
         {/* Editable title */}
-        <input
-          type="text"
-          value={localTitle}
-          onChange={(e) => setLocalTitle(e.target.value)}
-          onBlur={() => {
-            if (localTitle !== shareLink.title) {
-              immediateUpdate({ title: localTitle }).then(() => onUpdate?.());
-            }
-          }}
-          placeholder="Untitled Share Link"
-          className="w-full bg-transparent text-2xl font-semibold text-text-primary placeholder:text-text-tertiary outline-none border-none focus:ring-0"
-        />
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={localTitle}
+            onChange={(e) => setLocalTitle(e.target.value)}
+            onBlur={() => {
+              if (localTitle !== shareLink.title) {
+                immediateUpdate({ title: localTitle }).then(() => onUpdate?.());
+              }
+            }}
+            placeholder="Untitled Share Link"
+            className="min-w-0 flex-1 bg-transparent text-2xl font-semibold text-text-primary placeholder:text-text-tertiary outline-none border-none focus:ring-0"
+          />
+          <button
+            onClick={() => window.dispatchEvent(new Event("freeframe:open-share-banner-editor"))}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit header
+          </button>
+        </div>
 
         {/* Editable description */}
         <textarea
@@ -797,6 +1044,7 @@ export function ShareLinkContent({
           <CopyLinkButton text={shareUrl} />
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -806,6 +1054,7 @@ export function ShareLinkContent({
 export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
   const {
     shareLink,
+    mutate,
     debouncedUpdate,
     immediateUpdate,
     appearance,
@@ -819,6 +1068,8 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
   const [passwordEnabled, setPasswordEnabled] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
   const [localAccentColor, setLocalAccentColor] = React.useState("");
+  const [appearanceOpen, setAppearanceOpen] = React.useState(false);
+  const [bannerDialogOpen, setBannerDialogOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (shareLink) {
@@ -827,6 +1078,16 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
       setLocalAccentColor(shareLink.appearance?.accent_color || "");
     }
   }, [shareLink]);
+
+  React.useEffect(() => {
+    const openHeaderEditor = () => {
+      setRightTab("settings");
+      setAppearanceOpen(true);
+      setBannerDialogOpen(true);
+    };
+    window.addEventListener("freeframe:open-share-banner-editor", openHeaderEditor);
+    return () => window.removeEventListener("freeframe:open-share-banner-editor", openHeaderEditor);
+  }, []);
 
   const shareUrl =
     typeof window !== "undefined"
@@ -846,6 +1107,13 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
 
   return (
     <>
+      <HeaderBannerDialog
+        open={bannerDialogOpen}
+        onOpenChange={setBannerDialogOpen}
+        token={token}
+        appearance={appearance}
+        onSaved={async () => { await mutate(); }}
+      />
       {/* Tabs */}
       <div className="flex items-center border-b border-border">
         {(["settings", "activity"] as const).map((tab) => (
@@ -1037,8 +1305,33 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
             <Section
               title="Appearance"
               icon={<Paintbrush className="h-3.5 w-3.5" />}
-              defaultOpen={false}
+              open={appearanceOpen}
+              onOpenChange={setAppearanceOpen}
             >
+              {/* Header banner */}
+              <div className="rounded-lg border border-border bg-bg-tertiary/40 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-text-primary">Header banner</p>
+                    <p className="text-xs text-text-tertiary">Imagem, zoom e enquadramento do topo</p>
+                  </div>
+                  <button
+                    onClick={() => setBannerDialogOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-hover transition-colors"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {appearance.header_banner_key ? "Editar" : "Configurar"}
+                  </button>
+                </div>
+                {appearance.header_banner_url && (
+                  <div className="relative mt-3 overflow-hidden rounded-md border border-border aspect-[16/5] bg-bg-tertiary">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={appearance.header_banner_url} alt="Prévia do banner" className="h-full w-full object-cover" style={{ objectPosition: `${appearance.header_banner_position_x}% ${appearance.header_banner_position_y}%`, transform: `scale(${appearance.header_banner_zoom})`, transformOrigin: `${appearance.header_banner_position_x}% ${appearance.header_banner_position_y}%` }} />
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-bg-primary/80 to-transparent" />
+                  </div>
+                )}
+              </div>
+
               {/* Layout — Grid / List */}
               <div className="space-y-1.5">
                 <p className="text-xs text-text-secondary">Layout</p>

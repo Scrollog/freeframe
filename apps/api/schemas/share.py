@@ -15,6 +15,20 @@ class ShareLinkAppearance(BaseModel):
     aspect_ratio: Literal["landscape", "square", "portrait"] = "landscape"
     thumbnail_scale: Literal["fit", "fill"] = "fill"
     show_card_info: bool = True
+    header_banner_key: Optional[str] = None
+    header_banner_url: Optional[str] = None
+    header_banner_position_x: int = Field(default=50, ge=0, le=100)
+    header_banner_position_y: int = Field(default=50, ge=0, le=100)
+    header_banner_zoom: float = Field(default=1, ge=1, le=2)
+
+
+class ShareLinkBannerUploadRequest(BaseModel):
+    content_type: Literal["image/jpeg", "image/png", "image/webp"]
+
+
+class ShareLinkBannerUploadResponse(BaseModel):
+    upload_url: str
+    key: str
 
 
 class ShareLinkCreate(BaseModel):
@@ -84,6 +98,7 @@ class ShareLinkValidateResponse(BaseModel):
     requires_password: bool
     requires_auth: bool = False  # True when visibility=secure and user not authenticated
     created_by_name: Optional[str] = None
+    created_by_avatar_url: Optional[str] = None
     viewer_name: Optional[str] = None  # Logged-in user's name (if authenticated)
     viewer_email: Optional[str] = None  # Logged-in user's email (if authenticated)
     asset: Optional[dict] = None  # Full asset details for asset shares

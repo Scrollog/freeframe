@@ -35,6 +35,8 @@ from ..schemas.share import (
     MultiShareCreate,
     ShareLinkActivityResponse,
     ShareLinkCreate,
+    ShareLinkBannerUploadRequest,
+    ShareLinkBannerUploadResponse,
     ShareLinkListItem,
     ShareLinkMetadataResponse,
     ShareLinkResponse,
@@ -46,6 +48,7 @@ from ..services.permissions import (
     validate_asset_in_share, _is_descendant_of,
 )
 from ..services.redis_service import create_share_session
+from ..services import s3_service
 from ..services.s3_service import generate_presigned_get_url, build_download_filename
 from ..services.crypto_service import encrypt_password, decrypt_password
 from .hls_proxy import create_hls_token
@@ -55,6 +58,20 @@ from ..tasks.celery_app import send_task_safe
 from ..config import settings
 
 router = APIRouter(tags=["sharing"])
+
+
+def _share_appearance_with_banner_url(appearance: dict | None) -> dict:
+    """Expose a temporary banner URL without leaking the private S3 key alone."""
+    result = dict(appearance or {})
+    banner_key = result.get("header_banner_key")
+    if banner_key:
+        try:
+            result["header_banner_url"] = generate_presigned_get_url(banner_key)
+        except Exception:
+            result["header_banner_url"] = None
+    else:
+        result["header_banner_url"] = None
+    return result
 
 
 def _escape_like(s: str) -> str:
@@ -327,7 +344,11 @@ def validate_share_link_endpoint(
     # Resolve creator name
     creator = db.query(User).filter(User.id == link.created_by).first()
     created_by_name = creator.name if creator else None
-
+    created_by_avatar_url = (
+        generate_presigned_get_url(creator.avatar_url)
+        if creator and creator.avatar_url and not creator.avatar_url.startswith("http")
+        else (creator.avatar_url if creator else None)
+    )
     return ShareLinkValidateResponse(
         asset_id=link.asset_id,
         folder_id=link.folder_id,
@@ -341,9 +362,10 @@ def validate_share_link_endpoint(
         allow_download=link.allow_download,
         show_versions=link.show_versions,
         show_watermark=link.show_watermark,
-        appearance=link.appearance,
+        appearance=_share_appearance_with_banner_url(link.appearance),
         requires_password=False,
         created_by_name=created_by_name,
+        created_by_avatar_url=created_by_avatar_url,
         viewer_name=current_user.name if current_user else None,
         viewer_email=current_user.email if current_user else None,
         asset=asset_data,
@@ -355,6 +377,7 @@ def validate_share_link_endpoint(
 def _share_link_response(link: ShareLink) -> ShareLinkResponse:
     """Build ShareLinkResponse from ORM model, computing has_password and decrypting password."""
     response = ShareLinkResponse.model_validate(link)
+    response.appearance = _share_appearance_with_banner_url(link.appearance)
     response.has_password = link.password_hash is not None and link.password_hash != ''
     if link.password_encrypted:
         try:
@@ -410,6 +433,39 @@ def get_share_link_details(
     return _share_link_response(link)
 
 
+@router.post(
+    "/share/{token}/header-banner-upload",
+    response_model=ShareLinkBannerUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def get_header_banner_upload_url(
+    token: str,
+    body: ShareLinkBannerUploadRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a private, link-scoped upload target for a share header banner."""
+    link = db.query(ShareLink).filter(
+        ShareLink.token == token,
+        ShareLink.deleted_at.is_(None),
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Share link not found")
+    project_id = _get_project_id_from_link(db, link)
+    require_project_role(db, project_id, current_user, ProjectRole.editor)
+
+    extension = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    }[body.content_type]
+    key = f"share-banners/{link.id}/{uuid.uuid4()}.{extension}"
+    return ShareLinkBannerUploadResponse(
+        upload_url=s3_service.generate_presigned_put_url(key, content_type=body.content_type),
+        key=key,
+    )
+
+
 # ── PATCH share link ─────────────────────────────────────────────────────────
 
 @router.patch("/share/{token}", response_model=ShareLinkResponse)
@@ -440,14 +496,25 @@ def update_share_link(
             link.password_encrypted = None
 
     # Convert appearance Pydantic model to dict
+    previous_banner_key = None
     if "appearance" in updates and updates["appearance"] is not None:
-        updates["appearance"] = body.appearance.model_dump()
+        previous_banner_key = (link.appearance or {}).get("header_banner_key")
+        updates["appearance"] = body.appearance.model_dump(exclude={"header_banner_url"})
+        banner_key = updates["appearance"].get("header_banner_key")
+        if banner_key and not banner_key.startswith(f"share-banners/{link.id}/"):
+            raise HTTPException(status_code=400, detail="Invalid header banner")
 
     for key, value in updates.items():
         setattr(link, key, value)
 
     db.commit()
     db.refresh(link)
+    new_banner_key = (link.appearance or {}).get("header_banner_key")
+    if previous_banner_key and previous_banner_key != new_banner_key:
+        try:
+            s3_service.delete_object(previous_banner_key)
+        except Exception:
+            pass
     return _share_link_response(link)
 
 

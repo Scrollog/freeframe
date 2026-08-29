@@ -38,7 +38,7 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
-import type { Project, AssetResponse, ProjectMember, FolderTreeNode } from '@/types'
+import type { Project, ProjectBranding, AssetResponse, ProjectMember, FolderTreeNode } from '@/types'
 
 const acceptByType: Record<string, string> = {
   video: 'video/*',
@@ -107,6 +107,11 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     `/projects/${projectId}`,
     () => api.get<Project>(`/projects/${projectId}`),
   )
+  const { data: projectBranding } = useSWR<ProjectBranding>(
+    `/projects/${projectId}/branding`,
+    () => api.get<ProjectBranding>(`/projects/${projectId}/branding`),
+  )
+  const projectAccentColor = projectBranding?.primary_color ?? 'var(--accent)'
   useEffect(() => {
     if (project?.name) setLabel(projectId, project.name)
   }, [project?.name, projectId, setLabel])
@@ -480,10 +485,11 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
           <ShareDialog assetId={asset.id} assetName={asset.name} projectId={projectId} asset={asset} />
           <button
             onClick={() => setSidebarOpen((p) => !p)}
+            style={sidebarOpen ? { color: projectAccentColor } : undefined}
             className={cn(
               'mobile-touch-target flex items-center justify-center h-8 w-8 rounded-md transition-colors',
               sidebarOpen
-                ? 'bg-bg-hover text-text-primary'
+                ? 'bg-bg-hover'
                 : 'text-text-tertiary hover:text-text-primary hover:bg-bg-hover',
             )}
             title="Toggle sidebar"

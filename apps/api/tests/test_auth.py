@@ -148,6 +148,17 @@ def test_users_batch_does_not_leak_invite_token(client, auth_headers, mock_db, t
     assert "invite_token" not in body[0]
 
 
+def test_avatar_upload_rejects_unsupported_image_types(client, auth_headers, mock_db, test_user):
+    """Avatar upload URLs must only be issued for formats rendered by the profile UI."""
+    resp = client.post(
+        f"/users/{test_user.id}/avatar-upload?content_type=image/gif",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 400
+    assert "JPEG, PNG, or WebP" in resp.json()["detail"]
+
+
 def test_admin_list_users_still_includes_invite_token(client, auth_headers, mock_db, test_user):
     """GET /admin/users — admin-gated, so it may still expose invite_token (needed for the
     admin "copy invite link" UI); this endpoint's own is_superadmin check is the gate."""

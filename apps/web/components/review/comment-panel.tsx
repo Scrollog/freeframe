@@ -38,6 +38,7 @@ import {
   type ExportFormat,
 } from "@/lib/export-comments";
 import { FpsPromptDialog } from "@/components/review/fps-prompt-dialog";
+import { CommentThreadConnector } from "@/components/comments/comment-thread-connector";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -475,20 +476,21 @@ function CommentItem({
   }
 
   return (
-    <div
-      ref={itemRef}
-      className={cn(
-        "group/comment relative transition-colors cursor-pointer",
-        depth > 0
-          ? ""
-          : cn(
-              "rounded-lg border px-3",
-              isFocused
-                ? "border-accent/50 bg-white/[0.04]"
-                : "border-white/[0.06] hover:border-white/15 hover:bg-white/[0.02]",
-            ),
-      )}
-      onClick={() => {
+    <CommentThreadConnector active={depth === 0 && hasReplies}>
+      <div
+        ref={itemRef}
+        className={cn(
+          "group/comment relative transition-colors cursor-pointer",
+          depth > 0
+            ? ""
+            : cn(
+                "rounded-lg border px-3",
+                isFocused
+                  ? "border-accent/50 bg-white/[0.04]"
+                  : "border-white/[0.06] hover:border-white/15 hover:bg-white/[0.02]",
+              ),
+        )}
+        onClick={() => {
         setFocusedCommentId(comment.id);
         if (
           comment.timecode_start !== null &&
@@ -507,12 +509,10 @@ function CommentItem({
           title="New comment"
         />
       )}
-      {depth === 0 && hasReplies && (
-        <span className="pointer-events-none absolute bottom-[74px] left-7 top-3 z-0 w-px bg-border" />
-      )}
       <div className="relative z-[1] flex gap-2.5 py-3">
         {/* Colored avatar */}
         <div
+          data-comment-thread-avatar
           className={cn(
             "h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-bold text-text-inverse shrink-0 mt-0.5",
             avatarColor,
@@ -760,7 +760,8 @@ function CommentItem({
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </CommentThreadConnector>
   );
 }
 

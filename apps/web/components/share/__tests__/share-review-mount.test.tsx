@@ -60,4 +60,64 @@ describe('folder share — opening an asset mounts the review UI (#192)', () => 
 
     await waitFor(() => expect(screen.getByText('Fields')).toBeInTheDocument(), { timeout: 3000 })
   })
+
+  it('scopes the share appearance without changing the dashboard theme', async () => {
+    document.documentElement.setAttribute('data-theme', 'dark')
+    document.documentElement.style.setProperty('--accent', '#5b8def')
+
+    const { container, rerender } = render(
+      <FolderShareViewer
+        embedded token="t" folderName="F" title="T" description={null}
+        permission="view" allowDownload={false} showVersions={false}
+        appearance={{ theme: 'light', accent_color: '#e11d48' } as never} branding={null}
+      />,
+    )
+
+    await screen.findByText('Clip.mp4')
+    const preview = container.firstElementChild as HTMLElement
+    expect(preview).toHaveAttribute('data-theme', 'light')
+    expect(preview.style.getPropertyValue('--accent')).toBe('#e11d48')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#5b8def')
+
+    rerender(
+      <FolderShareViewer
+        embedded token="t" folderName="F" title="T" description={null}
+        permission="view" allowDownload={false} showVersions={false}
+        appearance={{ theme: 'dark', accent_color: '#14b8a6' } as never} branding={null}
+      />,
+    )
+
+    expect(preview).toHaveAttribute('data-theme', 'dark')
+    expect(preview.style.getPropertyValue('--accent')).toBe('#14b8a6')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#5b8def')
+  })
+
+  it('allows inline title and description editing only when embedded for configuration', async () => {
+    const onTitleCommit = vi.fn()
+    const onDescriptionCommit = vi.fn()
+
+    render(
+      <FolderShareViewer
+        embedded editableHeader token="t" folderName="F" title="T" description={null}
+        permission="view" allowDownload={false} showVersions={false}
+        appearance={{ open_in_viewer: true } as never} branding={null}
+        onTitleCommit={onTitleCommit}
+        onDescriptionCommit={onDescriptionCommit}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('heading', { name: 'T' }))
+    const titleInput = screen.getByLabelText('Share link title')
+    fireEvent.change(titleInput, { target: { value: 'New title' } })
+    fireEvent.blur(titleInput)
+    expect(onTitleCommit).toHaveBeenCalledWith('New title')
+
+    fireEvent.click(screen.getByText('Add a description…'))
+    const descriptionInput = screen.getByLabelText('Share link description')
+    fireEvent.change(descriptionInput, { target: { value: 'New description' } })
+    fireEvent.blur(descriptionInput)
+    expect(onDescriptionCommit).toHaveBeenCalledWith('New description')
+  })
 })

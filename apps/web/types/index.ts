@@ -261,6 +261,11 @@ export interface ShareLinkAppearance {
   aspect_ratio: "landscape" | "square" | "portrait"
   thumbnail_scale: "fit" | "fill"
   show_card_info: boolean
+  header_banner_key: string | null
+  header_banner_url?: string | null
+  header_banner_position_x: number
+  header_banner_position_y: number
+  header_banner_zoom: number
 }
 
 export interface ShareLink {

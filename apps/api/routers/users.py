@@ -14,6 +14,7 @@ from ..config import settings
 from ..services import s3_service
 
 router = APIRouter(prefix="/users", tags=["users"])
+ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 @router.get("", response_model=list[UserResponse])
 def get_users_batch(
@@ -105,6 +106,8 @@ def get_avatar_upload_url(
     """Generate a presigned S3 URL for uploading a profile avatar."""
     if current_user.id != user_id and not current_user.is_superadmin:
         raise HTTPException(status_code=403, detail="Can only upload your own avatar")
+    if content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="Avatar must be a JPEG, PNG, or WebP image")
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
