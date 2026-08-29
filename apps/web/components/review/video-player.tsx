@@ -9,8 +9,13 @@ import {
   Volume2,
   VolumeX,
   ChevronUp,
+  ChevronRight,
   Check,
   Repeat,
+  Settings,
+  Gauge,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { cn, formatTime, formatTimecode, formatFrames } from "@/lib/utils";
 import { renderedMediaBox } from "@/lib/media-frame";
@@ -122,6 +127,9 @@ export function VideoFrameConstraint({
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const EDGE_SEEK_ZONE = 0.18;
 const EDGE_SECOND_CLICK_WINDOW_MS = 400;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.25;
 
 export function getEdgeSeekDelta(offsetX: number, width: number): number {
   if (width <= 0) return 0;
@@ -146,8 +154,14 @@ export function VideoPlayer({
   initialStreamUrl,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mediaAreaRef = useRef<HTMLDivElement>(null);
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const didZoomGestureRef = useRef(false);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [loop, setLoop] = useState(false);
+  const [zoom, setZoom] = useState(MIN_ZOOM);
+  const [zoomOrigin, setZoomOrigin] = useState({ x: 50, y: 50 });
   const edgeClickRef = useRef<{ side: number; at: number } | null>(null);
 
   const { isDrawingMode, timeFormat, setTimeFormat, setPlayheadTime, currentVersion } =
@@ -155,6 +169,9 @@ export function VideoPlayer({
   const { registerPauseHandler } = useReview();
   const [timeFormatOpen, setTimeFormatOpen] = useState(false);
   const timeFormatRef = useRef<HTMLDivElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState<"main" | "quality" | "speed" | "zoom">("main");
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   // Close time format dropdown on outside click
   useEffect(() => {
@@ -169,6 +186,18 @@ export function VideoPlayer({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [timeFormatOpen]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setSettingsOpen(false);
+        setSettingsView("main");
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [settingsOpen]);
 
   function displayTime(seconds: number): string {
     switch (timeFormat) {
@@ -242,6 +271,7 @@ export function VideoPlayer({
     pause,
     togglePlay,
     seek,
+    fastSeek,
     setPlaybackRate,
     setQuality,
     setVolume,
@@ -276,6 +306,14 @@ export function VideoPlayer({
       }
 
       switch (e.code) {
+        case "Digit0":
+        case "Numpad0":
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            setZoom(MIN_ZOOM);
+            setZoomOrigin({ x: 50, y: 50 });
+          }
+          break;
         case "Space":
           e.preventDefault();
           togglePlay();
@@ -304,7 +342,83 @@ export function VideoPlayer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [togglePlay, seek, currentTime, isDrawingMode]);
 
+  const changeZoom = useCallback((amount: number) => {
+    setZoom((current) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current + amount)));
+  }, []);
+
+  const setZoomOriginFromPoint = useCallback((clientX: number, clientY: number) => {
+    const rect = mediaAreaRef.current?.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) return;
+    setZoomOrigin({
+      x: Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100)),
+      y: Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100)),
+    });
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setZoom(MIN_ZOOM);
+    setZoomOrigin({ x: 50, y: 50 });
+  }, []);
+
+  // Prevent Ctrl + wheel from changing browser zoom while the pointer is over
+  // the player, and use it to scale the media instead.
+  useEffect(() => {
+    const mediaArea = mediaAreaRef.current;
+    if (!mediaArea) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      setZoomOriginFromPoint(event.clientX, event.clientY);
+      changeZoom(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+    };
+
+    mediaArea.addEventListener("wheel", handleWheel, { passive: false });
+    return () => mediaArea.removeEventListener("wheel", handleWheel);
+  }, [changeZoom, setZoomOriginFromPoint]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (activePointersRef.current.size === 2) {
+      const [first, second] = Array.from(activePointersRef.current.values());
+      pinchRef.current = {
+        distance: Math.hypot(first.x - second.x, first.y - second.y),
+        zoom,
+      };
+    }
+  }, [zoom]);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!activePointersRef.current.has(event.pointerId)) return;
+    activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (activePointersRef.current.size !== 2 || !pinchRef.current) return;
+
+    const [first, second] = Array.from(activePointersRef.current.values());
+    const distance = Math.hypot(first.x - second.x, first.y - second.y);
+    if (!pinchRef.current.distance) return;
+
+    const nextZoom = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, pinchRef.current.zoom * (distance / pinchRef.current.distance)),
+    );
+    if (Math.abs(nextZoom - zoom) > 0.01) {
+      event.preventDefault();
+      didZoomGestureRef.current = true;
+      setZoomOriginFromPoint((first.x + second.x) / 2, (first.y + second.y) / 2);
+      setZoom(nextZoom);
+    }
+  }, [setZoomOriginFromPoint, zoom]);
+
+  const handlePointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.delete(event.pointerId);
+    if (activePointersRef.current.size < 2) pinchRef.current = null;
+  }, []);
+
   const handleContainerClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (didZoomGestureRef.current) {
+      didZoomGestureRef.current = false;
+      return;
+    }
     if (isDrawingMode) return;
 
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -331,13 +445,14 @@ export function VideoPlayer({
     }
   }, [toggleFullscreen]);
 
-  const handleSpeedCycle = useCallback(() => {
-    const idx = SPEED_OPTIONS.indexOf(
-      playbackRate as (typeof SPEED_OPTIONS)[number],
-    );
-    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length];
-    setPlaybackRate(next);
-  }, [playbackRate, setPlaybackRate]);
+  const qualityLabel = currentQuality === -1
+    ? "Auto"
+    : qualityLevels.find((level) => level.index === currentQuality)?.label ?? "Auto";
+
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsView("main");
+  }, []);
 
   return (
     <div
@@ -350,18 +465,38 @@ export function VideoPlayer({
     >
       {/* Video area — fills available space, object-contain preserves aspect ratio with letterbox */}
       <div
-        className="flex-1 relative min-h-0 bg-black overflow-hidden cursor-pointer touch-manipulation"
+        ref={mediaAreaRef}
+        className="flex-1 relative min-h-0 bg-black overflow-hidden cursor-pointer touch-none"
         onClick={handleContainerClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
       >
-        <video
-          ref={videoRef}
-          className={cn(
-            "absolute inset-0 w-full h-full object-contain",
-            isDrawingMode ? "pointer-events-none" : "",
+        <div
+          className="absolute inset-0 origin-center transition-transform duration-100 ease-out"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: `${zoomOrigin.x}% ${zoomOrigin.y}%`,
+          }}
+        >
+          <video
+            ref={videoRef}
+            className={cn(
+              "absolute inset-0 w-full h-full object-contain",
+              isDrawingMode ? "pointer-events-none" : "",
+            )}
+            playsInline
+            preload="metadata"
+          />
+
+          {/* Overlay slot (annotation canvas / overlay) — constrained to video frame */}
+          {overlay && (
+            <VideoFrameConstraint videoRef={videoRef}>
+              {overlay}
+            </VideoFrameConstraint>
           )}
-          playsInline
-          preload="metadata"
-        />
+        </div>
 
         {/* Loading spinner */}
         {isLoading && (
@@ -377,16 +512,10 @@ export function VideoPlayer({
           </div>
         )}
 
-        {/* Overlay slot (annotation canvas / overlay) — constrained to video frame */}
-        {overlay && (
-          <VideoFrameConstraint videoRef={videoRef}>
-            {overlay}
-          </VideoFrameConstraint>
-        )}
       </div>
 
       {/* Progress bar */}
-      <div className="shrink-0 bg-bg-primary">
+      <div className="shrink-0 bg-black">
         <ProgressBar
           currentTime={currentTime}
           duration={duration}
@@ -394,12 +523,13 @@ export function VideoPlayer({
           comments={comments}
           streamUrl={streamUrl}
           onSeek={seek}
+          onScrubSeek={fastSeek}
         />
       </div>
 
       {/* Bottom transport bar (matches audio player style) */}
-      <div className="flex items-center justify-between h-12 px-4 bg-bg-secondary/80 border-t border-border shrink-0">
-        {/* Left: Play, Loop, Speed, Volume */}
+      <div className="flex items-center justify-between h-12 px-4 bg-bg-secondary/80 shrink-0">
+        {/* Left: Play, Volume */}
         <div className="flex items-center gap-2">
           <button
             onClick={togglePlay}
@@ -411,27 +541,6 @@ export function VideoPlayer({
             ) : (
               <Play className="h-4 w-4" />
             )}
-          </button>
-
-          <button
-            onClick={() => setLoop((p) => !p)}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded transition-colors",
-              loop
-                ? "text-accent bg-accent/10"
-                : "text-text-tertiary hover:text-text-secondary hover:bg-bg-hover",
-            )}
-            aria-label="Loop"
-          >
-            <Repeat className="h-4 w-4" />
-          </button>
-
-          <button
-            onClick={handleSpeedCycle}
-            className="flex h-7 items-center justify-center rounded px-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors tabular-nums"
-            aria-label="Playback speed"
-          >
-            {playbackRate}x
           </button>
 
           <button
@@ -506,30 +615,139 @@ export function VideoPlayer({
           )}
         </div>
 
-        {/* Right: Quality, Fullscreen */}
+        {/* Right: Player settings, Fullscreen */}
         <div className="flex items-center gap-2">
-          {/* Quality selector */}
-          {qualityLevels.length > 0 && (
-            <select
-              value={currentQuality}
-              onChange={(e) => setQuality(parseInt(e.target.value, 10))}
-              className="bg-transparent text-text-secondary text-xs border border-border rounded px-1.5 py-1 cursor-pointer shrink-0 hover:text-text-primary transition-colors"
-              aria-label="Quality"
+          <div className="relative" ref={settingsRef}>
+            <button
+              onClick={() => {
+                setSettingsOpen((open) => !open);
+                setSettingsView("main");
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              aria-label="Player settings"
+              aria-expanded={settingsOpen}
             >
-              <option value={-1} className="bg-bg-secondary">
-                Auto
-              </option>
-              {qualityLevels.map((level) => (
-                <option
-                  key={level.index}
-                  value={level.index}
-                  className="bg-bg-secondary"
-                >
-                  {level.label}
-                </option>
-              ))}
-            </select>
-          )}
+              <Settings className="h-4 w-4" />
+            </button>
+            {settingsOpen && (
+              <div className="absolute bottom-full right-0 mb-2 z-50 w-56 overflow-hidden rounded-xl border border-border bg-bg-elevated py-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                {settingsView === "main" ? (
+                  <>
+                    {qualityLevels.length > 0 && (
+                      <button
+                        onClick={() => setSettingsView("quality")}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover transition-colors"
+                      >
+                        <Settings className="h-4 w-4 text-text-tertiary" />
+                        <span className="flex-1">Quality</span>
+                        <span className="text-xs text-text-tertiary">{qualityLabel}</span>
+                        <ChevronRight className="h-4 w-4 text-text-tertiary" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setSettingsView("speed")}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover transition-colors"
+                    >
+                      <Gauge className="h-4 w-4 text-text-tertiary" />
+                      <span className="flex-1">Playback speed</span>
+                      <span className="text-xs text-text-tertiary">{playbackRate}x</span>
+                      <ChevronRight className="h-4 w-4 text-text-tertiary" />
+                    </button>
+                    <button
+                      onClick={() => setSettingsView("zoom")}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover transition-colors"
+                    >
+                      <ZoomIn className="h-4 w-4 text-text-tertiary" />
+                      <span className="flex-1">Zoom</span>
+                      <span className="text-xs text-text-tertiary">
+                        {zoom === MIN_ZOOM ? "Fit" : `${Math.round(zoom * 100)}%`}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-text-tertiary" />
+                    </button>
+                    <button
+                      onClick={() => setLoop((enabled) => !enabled)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover transition-colors"
+                    >
+                      <Repeat className="h-4 w-4 text-text-tertiary" />
+                      <span className="flex-1">Loop</span>
+                      <span className={cn("h-4 w-7 rounded-full p-0.5 transition-colors", loop ? "bg-accent" : "bg-bg-hover")}>
+                        <span className={cn("block h-3 w-3 rounded-full bg-white transition-transform", loop && "translate-x-3")} />
+                      </span>
+                    </button>
+                  </>
+                ) : settingsView === "zoom" ? (
+                  <>
+                    <button
+                      onClick={() => setSettingsView("main")}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover transition-colors"
+                    >
+                      <ChevronRight className="h-4 w-4 rotate-180" />
+                      Zoom
+                    </button>
+                    <button
+                      onClick={() => changeZoom(ZOOM_STEP)}
+                      disabled={zoom >= MAX_ZOOM}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                    >
+                      <ZoomIn className="h-4 w-4 text-text-tertiary" />
+                      <span className="flex-1">Zoom in</span>
+                      <span className="text-text-tertiary">+</span>
+                    </button>
+                    <button
+                      onClick={() => changeZoom(-ZOOM_STEP)}
+                      disabled={zoom <= MIN_ZOOM}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                    >
+                      <ZoomOut className="h-4 w-4 text-text-tertiary" />
+                      <span className="flex-1">Zoom out</span>
+                      <span className="text-text-tertiary">−</span>
+                    </button>
+                    <button
+                      onClick={resetZoom}
+                      disabled={zoom === MIN_ZOOM}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                    >
+                      <Settings className="h-4 w-4 text-text-tertiary" />
+                      <span className="flex-1">Zoom to 100%</span>
+                      <span className="rounded bg-bg-hover px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">Ctrl+0</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setSettingsView("main")}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover transition-colors"
+                    >
+                      <ChevronRight className="h-4 w-4 rotate-180" />
+                      {settingsView === "quality" ? "Quality" : "Playback speed"}
+                    </button>
+                    {(settingsView === "quality"
+                      ? [...[...qualityLevels].reverse(), { index: -1, label: "Auto" }]
+                      : SPEED_OPTIONS.map((rate) => ({ index: rate, label: `${rate}x` }))
+                    ).map((option) => {
+                      const selected = settingsView === "quality"
+                        ? currentQuality === option.index
+                        : playbackRate === option.index;
+                      return (
+                        <button
+                          key={option.index}
+                          onClick={() => {
+                            if (settingsView === "quality") setQuality(option.index);
+                            else setPlaybackRate(option.index);
+                            closeSettings();
+                          }}
+                          className="flex w-full items-center justify-between px-3 py-2.5 text-sm text-text-primary hover:bg-bg-hover transition-colors"
+                        >
+                          {option.label}
+                          {selected && <Check className="h-4 w-4 text-accent" />}
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Fullscreen */}
           <button

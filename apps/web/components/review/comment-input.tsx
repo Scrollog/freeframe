@@ -445,7 +445,7 @@ export function CommentInput({
   return (
     <div
       className={cn(
-        "sticky bottom-0 z-10 border-t border-border bg-bg-secondary shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.9)] shrink-0",
+        "sticky bottom-0 z-10 bg-bg-secondary shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.9)] shrink-0",
         className,
       )}
     >

@@ -18,6 +18,7 @@ export interface VideoPlayerControls {
   pause: () => void
   togglePlay: () => void
   seek: (time: number) => void
+  fastSeek: (time: number) => void
   setPlaybackRate: (rate: number) => void
   setQuality: (levelIndex: number) => void
   setVolume: (volume: number) => void
@@ -280,6 +281,20 @@ export function useVideoPlayer(
     if (!detached) setPlayheadTime(clamped)
   }, [setPlayheadTime, detached])
 
+  // Scrubbing favours a decoded keyframe over exact frame accuracy. This avoids
+  // forcing the decoder through every intermediate frame; `seek` applies the
+  // exact final position as soon as the pointer is released.
+  const fastSeek = useCallback((time: number) => {
+    const video = videoRef.current
+    if (!video) return
+    const clamped = Math.max(0, Math.min(time, video.duration || 0))
+    if (typeof video.fastSeek === 'function') {
+      video.fastSeek(clamped)
+    } else {
+      video.currentTime = clamped
+    }
+  }, [])
+
   const setPlaybackRate = useCallback((rate: number) => {
     const video = videoRef.current
     if (!video) return
@@ -337,6 +352,7 @@ export function useVideoPlayer(
     pause,
     togglePlay,
     seek,
+    fastSeek,
     setPlaybackRate,
     setQuality,
     setVolume,
