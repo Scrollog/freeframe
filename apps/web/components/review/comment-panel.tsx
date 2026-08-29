@@ -191,7 +191,7 @@ function CommentMenu({
     <div className="relative">
       <button
         onClick={() => setOpen((p) => !p)}
-        className="h-7 w-7 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary transition-colors"
+        className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary transition-colors"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
@@ -311,13 +311,13 @@ function InlineReplyInput({
       />
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-1">
-          <button className="h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors">
+          <button className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors">
             <Paperclip className="h-4 w-4" />
           </button>
           <div className="relative" ref={emojiRef}>
             <button
               onClick={() => setEmojiOpen((p) => !p)}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
+              className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
               title="Add emoji"
             >
               <Smile className="h-4 w-4" />
@@ -353,7 +353,7 @@ function InlineReplyInput({
           <button
             onClick={handleSubmit}
             disabled={!body.trim() || submitting}
-            className="h-7 w-7 flex items-center justify-center rounded-full bg-accent text-text-inverse hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-full bg-accent text-text-inverse hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="h-3.5 w-3.5" />
           </button>

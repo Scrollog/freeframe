@@ -481,7 +481,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
           <button
             onClick={() => setSidebarOpen((p) => !p)}
             className={cn(
-              'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
+              'mobile-touch-target flex items-center justify-center h-8 w-8 rounded-md transition-colors',
               sidebarOpen
                 ? 'bg-bg-hover text-text-primary'
                 : 'text-text-tertiary hover:text-text-primary hover:bg-bg-hover',

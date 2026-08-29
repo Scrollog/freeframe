@@ -69,7 +69,7 @@ export function VersionSwitcher({ versions, className, compact = false }: Versio
             title="Versions"
             className={cn(
               'inline-flex items-center gap-1.5 rounded-md bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors outline-none',
-              compact ? 'h-8 w-8 justify-center' : 'px-2.5 py-1',
+              compact ? 'mobile-touch-target h-8 w-8 justify-center' : 'px-2.5 py-1',
             )}
           >
             {compact ? <Layers className="h-4 w-4" /> : <span>v{currentVersion?.version_number ?? latest.version_number}</span>}

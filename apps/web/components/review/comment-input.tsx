@@ -526,7 +526,7 @@ export function CommentInput({
           <div className="flex items-center gap-1">
             <button
               onClick={() => exitDrawingMode()}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary transition-colors"
+              className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary transition-colors"
               title="Exit drawing"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -542,7 +542,7 @@ export function CommentInput({
                   onClick={() => setDrawingTool(tool.id as DrawingTool)}
                   title={tool.label}
                   className={cn(
-                    "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                    "mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md transition-colors",
                     drawingTool === tool.id
                       ? "bg-accent/15 text-accent"
                       : "text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary",
@@ -573,14 +573,14 @@ export function CommentInput({
 
             <button
               onClick={undo}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
+              className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
               title="Undo"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={clear}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
+              className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
               title="Clear"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -594,7 +594,7 @@ export function CommentInput({
               {hasTimecode && (
                 <button
                   className={cn(
-                    "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                    "mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md transition-colors",
                     timecodeAttached
                       ? "text-amber-400 bg-amber-400/10"
                       : "text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary",
@@ -612,7 +612,7 @@ export function CommentInput({
               {canAnnotate && (
                 <button
                   className={cn(
-                    "h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                    "mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md transition-colors",
                     hasAnnotation
                       ? "text-accent bg-accent/10"
                       : "text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary",
@@ -627,7 +627,7 @@ export function CommentInput({
               {/* Emoji */}
               <div className="relative" ref={emojiRef}>
                 <button
-                  className="h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
+                  className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
                   title="Add emoji"
                   onClick={() => setEmojiOpen((p) => !p)}
                 >
@@ -715,7 +715,7 @@ export function CommentInput({
               <button
                 onClick={handleSubmit}
                 disabled={!body.trim() || submitting}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-text-primary hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="mobile-touch-target inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-text-primary hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 title="Send (Enter)"
               >
                 {submitting ? (
