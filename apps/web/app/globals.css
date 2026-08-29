@@ -150,3 +150,14 @@
     text-wrap: balance;
   }
 }
+
+/* iOS Safari zooms the page when a form control below 16px receives focus.
+   Keep text fields at the native threshold on small screens while preserving
+   browser pinch-to-zoom for accessibility. */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
