@@ -120,6 +120,23 @@ export function VideoFrameConstraint({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const EDGE_SEEK_ZONE = 0.18;
+const EDGE_SECOND_CLICK_WINDOW_MS = 400;
+
+export function getEdgeSeekDelta(offsetX: number, width: number): number {
+  if (width <= 0) return 0;
+  if (offsetX <= width * EDGE_SEEK_ZONE) return -2;
+  if (offsetX >= width * (1 - EDGE_SEEK_ZONE)) return 2;
+  return 0;
+}
+
+export function isRapidRepeatEdgeClick(
+  previous: { side: number; at: number } | null,
+  side: number,
+  now: number,
+): boolean {
+  return previous?.side === side && now - previous.at <= EDGE_SECOND_CLICK_WINDOW_MS;
+}
 
 export function VideoPlayer({
   assetId,
@@ -131,6 +148,7 @@ export function VideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [loop, setLoop] = useState(false);
+  const edgeClickRef = useRef<{ side: number; at: number } | null>(null);
 
   const { isDrawingMode, timeFormat, setTimeFormat, setPlayheadTime, currentVersion } =
     useReviewStore();
@@ -286,11 +304,26 @@ export function VideoPlayer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [togglePlay, seek, currentTime, isDrawingMode]);
 
-  const handleContainerClick = useCallback(() => {
-    if (!isDrawingMode) {
+  const handleContainerClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (isDrawingMode) return;
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const delta = getEdgeSeekDelta(event.clientX - bounds.left, bounds.width);
+    if (!delta) {
+      edgeClickRef.current = null;
       togglePlay();
+      return;
     }
-  }, [togglePlay, isDrawingMode]);
+
+    const now = Date.now();
+    const side = Math.sign(delta);
+    if (isRapidRepeatEdgeClick(edgeClickRef.current, side, now)) {
+      seek(currentTime + delta);
+      edgeClickRef.current = null;
+      return;
+    }
+    edgeClickRef.current = { side, at: now };
+  }, [togglePlay, seek, currentTime, isDrawingMode]);
 
   const handleFullscreen = useCallback(() => {
     if (containerRef.current) {
@@ -317,7 +350,7 @@ export function VideoPlayer({
     >
       {/* Video area — fills available space, object-contain preserves aspect ratio with letterbox */}
       <div
-        className="flex-1 relative min-h-0 bg-black overflow-hidden cursor-pointer"
+        className="flex-1 relative min-h-0 bg-black overflow-hidden cursor-pointer touch-manipulation"
         onClick={handleContainerClick}
       >
         <video

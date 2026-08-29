@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Share links now have a short public URL** (`/s/<code>`) backed by a random 96-bit code. The short URL preserves all existing share settings, including passwords, expiration, permissions and revocation.
 - **Administrators can configure the title and description used in public-share previews** from **Admin Dashboard → Instance settings**. Protected shares intentionally do not expose preview metadata.
 
+### Fixed
+
+- **Shared-folder assets now open with one touch on mobile.** Desktop keeps its existing click-to-select and double-click-to-open interaction.
+- **Mobile review now keeps the comment composer at the bottom and lets viewers drag the divider between the media and comments.**
+
 ## [1.9.0] - 2026-08-16
 
 ### Upgrade notes

@@ -16,6 +16,7 @@ import {
   Layers,
   PanelRightClose,
   PanelRightOpen,
+  GripHorizontal,
   ArrowLeft,
   CheckCircle2,
   XCircle,
@@ -25,6 +26,7 @@ import { buildCommentNumbers } from '@/lib/comment-numbers'
 import { getGuestCommentToken, removeGuestCommentToken } from '@/lib/guest-comment-tokens'
 import { useReview, type CreateCommentPayload } from '@/components/review/review-provider'
 import { useReviewStore } from '@/stores/review-store'
+import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
 import type {
   SharePermission,
   ShareLinkAppearance,
@@ -291,6 +293,9 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
       )}
       onClick={() => onSelect(asset)}
       onDoubleClick={() => onOpen(asset)}
+      onPointerUp={(event) => {
+        if (event.pointerType === 'touch') onOpen(asset)
+      }}
     >
       {/* Thumbnail */}
       <div className={cn('w-full relative overflow-hidden bg-bg-tertiary', aspectClass)}>
@@ -343,6 +348,7 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
               e.stopPropagation()
               handleDownload(token, asset.id, shareSession)
             }}
+            onPointerUp={(e) => e.stopPropagation()}
             title="Download"
           >
             <Download className="h-3 w-3" />
@@ -799,7 +805,10 @@ function ShareReviewInner({
 }: any) {
   const { asset, versions, isLoading, comments, refetchComments, addComment } = useReview()
   const { currentVersion, isDrawingMode, focusedCommentId } = useReviewStore()
-  const [sidebarOpen, setSidebarOpen] = React.useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches)
+  // On small screens the comments panel is part of the page flow, below the
+  // media, rather than a hidden overlay. Desktop keeps the collapsible sidebar.
+  const [sidebarOpen, setSidebarOpen] = React.useState(true)
+  const mobileSplit = useMobileReviewSplit()
   const [activeTab, setActiveTab] = React.useState<'comments' | 'fields'>('comments')
   const [AnnotationOverlay, setAnnotationOverlay] = React.useState<any>(null)
   const [AnnotationCanvas, setAnnotationCanvas] = React.useState<any>(null)
@@ -870,7 +879,7 @@ function ShareReviewInner({
   }
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary text-text-primary">
+    <div className="flex flex-col h-[100dvh] bg-bg-primary text-text-primary">
       {/* Top bar — same style as project review */}
       <div className="flex items-center justify-between border-b border-border px-3 h-12 bg-bg-secondary shrink-0">
         <div className="flex items-center gap-1 min-w-0 flex-1">
@@ -883,7 +892,9 @@ function ShareReviewInner({
         </div>
         <div className="flex items-center gap-2">
           {showVersions && VersionSwitcher && versions.length > 0 && (
-            <VersionSwitcher versions={versions} />
+            <div className="hidden md:block">
+              <VersionSwitcher versions={versions} />
+            </div>
           )}
           {allowDownload && (
             <button className="flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-text-inverse bg-accent hover:bg-accent-hover transition-colors" onClick={() => handleDownload(token, asset.id, shareSession)}>
@@ -897,9 +908,12 @@ function ShareReviewInner({
       </div>
 
       {/* Main: viewer + sidebar */}
-      <div className="relative flex flex-1 overflow-hidden min-h-0">
+      <div ref={mobileSplit.containerRef} className="relative flex flex-1 min-h-0 flex-col overflow-hidden md:flex-row">
         {/* Media viewer — reuses project components */}
-        <div className="flex-1 flex flex-col bg-bg-primary overflow-hidden min-w-0">
+        <div
+          className={cn('flex min-h-[220px] flex-col bg-bg-primary overflow-hidden min-w-0 md:min-h-0 md:flex-1', sidebarOpen ? 'flex-none' : 'flex-1')}
+          style={mobileSplit.isMobile && sidebarOpen ? { height: `${mobileSplit.mediaPercent}%` } : undefined}
+        >
           {asset.asset_type === 'video' && versionReady && VideoPlayer ? (
             <VideoPlayer
               assetId={asset.id}
@@ -935,9 +949,31 @@ function ShareReviewInner({
           )}
         </div>
 
+        {sidebarOpen && (
+          <div className="relative z-10 h-0 shrink-0 md:hidden">
+            <div
+              role="separator"
+              aria-label="Resize media and comments"
+              aria-orientation="horizontal"
+              className="absolute -top-4 left-1/2 flex h-8 w-16 -translate-x-1/2 touch-none cursor-row-resize items-center justify-center"
+              onPointerDown={mobileSplit.onPointerDown}
+              onPointerMove={mobileSplit.onPointerMove}
+              onPointerUp={mobileSplit.onPointerUp}
+              onPointerCancel={mobileSplit.onPointerCancel}
+            >
+              <span className="pointer-events-none flex h-3 w-8 items-center justify-center rounded-full bg-accent text-text-tertiary">
+                <GripHorizontal className="h-2.5 w-3.5" />
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Right sidebar — reuses project comment panel */}
         {sidebarOpen && (
-          <div className="w-full md:w-[360px] absolute inset-y-0 right-0 z-20 md:static md:inset-auto flex flex-col border-l-0 md:border-l border-border bg-bg-secondary shrink-0">
+          <div
+            className="w-full min-h-0 flex flex-col border-t border-border bg-bg-secondary shrink-0 md:w-[360px] md:min-h-0 md:border-t-0 md:border-l"
+            style={mobileSplit.isMobile ? { height: `${100 - mobileSplit.mediaPercent}%` } : undefined}
+          >
             <div className="px-4 pt-3 pb-2 shrink-0">
               <div className="flex items-center bg-bg-tertiary rounded-lg p-0.5">
                 <button onClick={() => setActiveTab('comments')} className={`flex-1 py-1.5 text-[13px] font-medium rounded-md transition-all ${activeTab === 'comments' ? 'bg-bg-hover text-text-primary shadow-sm' : 'text-text-tertiary'}`}>
@@ -1576,6 +1612,9 @@ export function FolderShareViewer({
                                   )}
                                   onClick={() => setSelectedAsset(asset)}
                                   onDoubleClick={() => openInViewer && setViewingAsset(asset)}
+                                  onPointerUp={(event) => {
+                                    if (event.pointerType === 'touch' && openInViewer) setViewingAsset(asset)
+                                  }}
                                 >
                                   {/* Square thumbnail */}
                                   <ListRowThumb asset={asset} TypeIcon={TypeIcon} />
@@ -1600,6 +1639,7 @@ export function FolderShareViewer({
                                     <button
                                       className="w-7 shrink-0 flex items-center justify-center h-7 rounded text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-text-primary transition-all"
                                       onClick={(e) => { e.stopPropagation(); handleDownload(token, asset.id, shareSession) }}
+                                      onPointerUp={(e) => e.stopPropagation()}
                                       title="Download"
                                     >
                                       <Download className="h-4 w-4" />

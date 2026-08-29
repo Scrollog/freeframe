@@ -30,12 +30,14 @@ import {
   Info,
   Loader2,
   Columns2,
+  GripHorizontal,
   Upload,
   GitCompareArrows,
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { usePageTitle } from '@/hooks/use-page-title'
+import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
 import type { Project, AssetResponse, ProjectMember, FolderTreeNode } from '@/types'
 
 const acceptByType: Record<string, string> = {
@@ -60,6 +62,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const [annotationData, setAnnotationData] = useState<Record<string, unknown> | null>(null)
   const [activeTab, setActiveTab] = useState<'comments' | 'fields'>('comments')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const mobileSplit = useMobileReviewSplit()
   const deepLinkApplied = useRef(false)
   const knownCommentIds = useRef<Set<string> | null>(null)
   const [newCommentIds, setNewCommentIds] = useState<string[]>([])
@@ -397,7 +400,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
 
         {/* Center: asset navigation */}
         {totalAssets > 1 && (
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="hidden sm:flex items-center gap-1 shrink-0">
             <button
               onClick={() => prevAsset && navigateAsset(prevAsset.id)}
               disabled={!prevAsset}
@@ -439,7 +442,9 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
               setTimeout(() => refetchVersions(), 2500)
             }}
           />
-          <VersionSwitcher versions={versions} />
+          <div className="hidden md:block">
+            <VersionSwitcher versions={versions} />
+          </div>
           {asset && canCompare(asset.asset_type, versions) && (
             <button
               onClick={() => {
@@ -454,7 +459,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                 p.set('compare', prev.id)
                 router.replace(`${pathname}?${p.toString()}`, { scroll: false })
               }}
-              className="inline-flex items-center gap-1.5 rounded-md px-2.5 h-8 text-xs font-medium border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              className="hidden md:inline-flex items-center gap-1.5 rounded-md px-2.5 h-8 text-xs font-medium border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
               title="Compare versions"
             >
               <GitCompareArrows className="h-3.5 w-3.5" />
@@ -463,7 +468,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
           )}
           <button
             onClick={() => versionFileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-md px-2.5 h-8 text-xs font-medium border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className="hidden md:inline-flex items-center gap-1.5 rounded-md px-2.5 h-8 text-xs font-medium border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
             title="Upload new version"
           >
             <Upload className="h-3.5 w-3.5" />
@@ -489,16 +494,41 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
       {compareOpen && asset && currentVersion && canCompare(asset.asset_type, versions) ? (
         <CompareOverlay asset={asset} versions={versions} rightVersion={currentVersion} onClose={closeCompare} canComment={canComment} />
       ) : (
-      <div className="flex flex-1 overflow-hidden min-h-0">
+      <div ref={mobileSplit.containerRef} className="flex flex-1 min-h-0 flex-col overflow-hidden md:flex-row">
         {/* Left: viewer column */}
-        <div className="flex-1 flex flex-col bg-bg-primary overflow-hidden min-w-0">
+        <div
+          className={cn('flex min-h-[220px] flex-col bg-bg-primary overflow-hidden min-w-0 md:min-h-0 md:flex-1', sidebarOpen ? 'flex-none' : 'flex-1')}
+          style={mobileSplit.isMobile && sidebarOpen ? { height: `${mobileSplit.mediaPercent}%` } : undefined}
+        >
           {/* Media viewer */}
           {renderMediaViewer()}
         </div>
 
+        {sidebarOpen && (
+          <div className="relative z-10 h-0 shrink-0 md:hidden">
+            <div
+              role="separator"
+              aria-label="Resize media and comments"
+              aria-orientation="horizontal"
+              className="absolute -top-4 left-1/2 flex h-8 w-16 -translate-x-1/2 touch-none cursor-row-resize items-center justify-center"
+              onPointerDown={mobileSplit.onPointerDown}
+              onPointerMove={mobileSplit.onPointerMove}
+              onPointerUp={mobileSplit.onPointerUp}
+              onPointerCancel={mobileSplit.onPointerCancel}
+            >
+              <span className="pointer-events-none flex h-3 w-8 items-center justify-center rounded-full bg-accent text-text-tertiary">
+                <GripHorizontal className="h-2.5 w-3.5" />
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Right: comments sidebar */}
         {sidebarOpen && (
-          <div className="w-[360px] flex flex-col border-l border-border bg-bg-secondary shrink-0 animate-in slide-in-from-right-2 duration-150">
+          <div
+            className="w-full min-h-0 flex flex-col border-t border-border bg-bg-secondary shrink-0 md:w-[360px] md:min-h-0 md:border-t-0 md:border-l animate-in slide-in-from-right-2 duration-150"
+            style={mobileSplit.isMobile ? { height: `${100 - mobileSplit.mediaPercent}%` } : undefined}
+          >
             {/* Tabs (Frame.io pill style) */}
             <div className="px-4 pt-3 pb-2 shrink-0">
               <div className="flex items-center bg-bg-tertiary rounded-lg p-0.5">
