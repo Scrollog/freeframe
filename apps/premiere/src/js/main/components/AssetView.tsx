@@ -429,15 +429,23 @@ export const AssetView = ({
    * set of comments actually changed, so the poll doesn't hit ExtendScript on
    * every tick.
    */
-  const signature = comments
+  // Marker sync follows the same filtered thread the reviewer sees. This also
+  // changes whenever search, status, author, attachment, or annotation filters
+  // change the visible comment set.
+  const markerSignature = visible
     .map((c) => `${c.id}:${c.resolved ? 1 : 0}:${c.timecode_start ?? ""}`)
     .join("|");
 
   useEffect(() => {
-    if (!markersOn || !host.ok) return;
-    pushMarkers(comments);
-    // `signature` stands in for the comment set; `comments` changes every poll.
-  }, [signature, markersOn, host.sequenceId, offset]);
+    // Marker visibility is global to the extension, but the active sequence
+    // only belongs to this asset when it has an explicit sequence/segment link.
+    // Without this guard, posting on an unrelated asset could write markers
+    // into whichever Premiere sequence happens to be open.
+    if (!isLinked || !markersOn || !host.ok) return;
+    pushMarkers(visible);
+    // `markerSignature` includes the current comment filters as well as the
+    // comment content, so markers disappear and return with the list.
+  }, [markerSignature, visible, isLinked, markersOn, host.sequenceId, offset]);
 
   /**
    * In/Out exports are already linked when their upload completes, without a
@@ -446,10 +454,10 @@ export const AssetView = ({
    */
   useEffect(() => {
     if (!segmentLink || !host.ok || markersOn || !comments.length) return;
-    pushMarkers(comments).then((result) => {
+    pushMarkers(visible).then((result) => {
       if (result) updateSettings({ markersVisible: true });
     });
-  }, [segmentLink?.id, signature, host.ok, host.sequenceId, offset]);
+  }, [segmentLink?.id, markerSignature, visible, host.ok, host.sequenceId, offset]);
 
   const toggleMarkers = async () => {
     if (!host.ok) {
@@ -466,7 +474,7 @@ export const AssetView = ({
         }
         updateSettings({ markersVisible: false });
       } else {
-        const result = await pushMarkers(comments);
+        const result = await pushMarkers(visible);
         if (!result) return;
         updateSettings({ markersVisible: true });
         // Comments outside the sequence silently have nowhere to go, so that
@@ -516,7 +524,7 @@ export const AssetView = ({
     }
     onLinkChange(next);
 
-    const markerResult = await pushMarkers(comments);
+    const markerResult = await pushMarkers(visible);
     if (markerResult) {
       updateSettings({ markersVisible: true });
       if (markerResult.skipped) {
@@ -650,7 +658,7 @@ export const AssetView = ({
       // rather than the manual link menu. Push the first new note immediately
       // so the marker appears without requiring a relink.
       if (isLinked && host.ok && list) {
-        const result = await pushMarkers(list);
+        const result = await pushMarkers(visible);
         if (result) updateSettings({ markersVisible: true });
       }
     } catch (e) {

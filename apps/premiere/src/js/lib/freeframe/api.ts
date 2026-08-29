@@ -126,7 +126,12 @@ export class FreeFrameApi {
     const headers: Record<string, string> = {
       ...(init.headers as Record<string, string> | undefined),
     };
-    if (init.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+    // Let the browser attach the multipart boundary when sending a selected
+    // project cover image. JSON remains the default for every other request.
+    if (init.body && !isFormData && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
     if (this.accessToken) headers["Authorization"] = `Bearer ${this.accessToken}`;
 
     let res: Response;
@@ -187,6 +192,19 @@ export class FreeFrameApi {
   /** Soft-deletes the project; it stays recoverable from the web app. */
   deleteProject(projectId: string) {
     return this.request<void>(`/projects/${projectId}`, { method: "DELETE" });
+  }
+
+  uploadProjectPoster(projectId: string, file: Blob, filename: string) {
+    const body = new FormData();
+    body.append("file", file, filename);
+    return this.request<Project>(`/projects/${projectId}/poster`, {
+      method: "POST",
+      body,
+    });
+  }
+
+  removeProjectPoster(projectId: string) {
+    return this.request<void>(`/projects/${projectId}/poster`, { method: "DELETE" });
   }
 
   folderTree(projectId: string, refresh = false) {

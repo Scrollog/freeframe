@@ -183,6 +183,20 @@ button {
   }
 }
 
+// CEP needs the modal to remain on the same composited layer after its entrance
+// finishes. Ending at translate3d(0, 0, 0), instead of `transform: none`, keeps
+// the opaque surface and its children painted above the hardware video layer.
+@keyframes export-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 /* Search input with a leading glyph. */
 .field {
   position: relative;
@@ -825,6 +839,12 @@ button {
   animation: fade 0.15s $ease;
 }
 
+// A location picker can be opened above the export modal. It is portalled to
+// the document root, so keep it above the export dialog's own scrim.
+.picker-scrim {
+  z-index: 70;
+}
+
 .dialog.prompt {
   text-align: left;
 
@@ -1462,7 +1482,6 @@ button {
 
   .annotation-overlay {
     position: absolute;
-    inset: 0;
     z-index: 5;
     overflow: hidden;
     pointer-events: none;
@@ -2676,13 +2695,25 @@ button {
   width: 100%;
   max-width: 360px;
   max-height: 86vh;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 16px;
   background: $bg-elevated;
   border: 1px solid $border-primary;
   border-radius: $radius-xl;
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65);
   animation: rise 0.2s $ease;
+}
+
+.export-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .export-head {

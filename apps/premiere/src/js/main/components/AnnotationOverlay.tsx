@@ -8,16 +8,64 @@
  * correction is not needed here: this only ever draws over video, where the
  * stored coordinates are already in media space.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 
 export const AnnotationOverlay = ({
   drawing,
+  videoRef,
 }: {
   drawing: Record<string, unknown> | null;
+  videoRef: RefObject<HTMLVideoElement | null>;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [boxSize, setBoxSize] = useState("");
+  const [frame, setFrame] = useState<CSSProperties>({ inset: 0 });
+
+  // `object-fit: contain` leaves bars around portrait, square, and other
+  // non-16:9 clips. Annotations are authored against the visible video frame,
+  // not against those bars, so mirror the web player's frame constraint here.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const measure = () => {
+      const width = video.offsetWidth;
+      const height = video.offsetHeight;
+      if (!width || !height || !video.videoWidth || !video.videoHeight) {
+        setFrame({ inset: 0 });
+        return;
+      }
+
+      const videoIsWider = video.videoWidth * height > video.videoHeight * width;
+      const frameWidth = videoIsWider ? width : (height * video.videoWidth) / video.videoHeight;
+      const frameHeight = videoIsWider ? (width * video.videoHeight) / video.videoWidth : height;
+      setFrame({
+        left: video.offsetLeft + (width - frameWidth) / 2,
+        top: video.offsetTop + (height - frameHeight) / 2,
+        width: frameWidth,
+        height: frameHeight,
+      });
+    };
+
+    measure();
+    video.addEventListener("loadedmetadata", measure);
+    video.addEventListener("resize", measure);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        video.removeEventListener("loadedmetadata", measure);
+        video.removeEventListener("resize", measure);
+      };
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(video);
+    if (video.parentElement) observer.observe(video.parentElement);
+    return () => {
+      video.removeEventListener("loadedmetadata", measure);
+      video.removeEventListener("resize", measure);
+      observer.disconnect();
+    };
+  }, [videoRef]);
 
   // The player's box isn't final on mount, so redraw whenever it settles.
   useEffect(() => {
@@ -93,7 +141,7 @@ export const AnnotationOverlay = ({
   if (!drawing) return null;
 
   return (
-    <div className="annotation-overlay" ref={containerRef}>
+    <div className="annotation-overlay" ref={containerRef} style={frame}>
       <canvas ref={canvasRef} />
     </div>
   );

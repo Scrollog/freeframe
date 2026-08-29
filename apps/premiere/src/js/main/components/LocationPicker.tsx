@@ -1,5 +1,6 @@
 /** Modal for choosing the project (and folder) a render is uploaded into. */
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useApp } from "../state";
 import type { FolderNode, Project } from "../../lib/freeframe/types";
 import { gradientFor } from "../../lib/freeframe/format";
@@ -62,8 +63,8 @@ export const LocationPicker = ({
     });
   };
 
-  return (
-    <div className="scrim" onClick={onCancel}>
+  const dialog = (
+    <div className="scrim picker-scrim" onClick={onCancel}>
       <div className="picker" onClick={(event) => event.stopPropagation()}>
         <div className="picker-head">
           {project && (
@@ -148,4 +149,10 @@ export const LocationPicker = ({
       </div>
     </div>
   );
+
+  // ExportView animates with a CSS transform. Rendering this fixed-position
+  // picker below that transformed element makes it briefly position itself
+  // inside the export modal, then jump or disappear. A portal keeps it at the
+  // panel root, above the export dialog.
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 };

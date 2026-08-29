@@ -3,6 +3,7 @@
  * FreeFrame — as a new version of the linked asset, or as a new asset.
  */
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useApp } from "../state";
 import {
   getInOut,
@@ -231,7 +232,7 @@ export const ExportView = ({
     return () => document.removeEventListener("keydown", onKey);
   }, [busy, onClose]);
 
-  return (
+  const modal = (
     <div className="scrim" onClick={() => !busy && onClose()}>
       <div className="export-view" onClick={(event) => event.stopPropagation()}>
       {pickingLocation && (
@@ -252,6 +253,7 @@ export const ExportView = ({
         </button>
       </div>
 
+      <div className="export-scroll">
       <Toggle
         label="Add to Version Stack"
         hint={
@@ -492,6 +494,7 @@ export const ExportView = ({
       </p>
 
       {error && <p className="error">{error}</p>}
+      </div>
 
       <div className="dialog-actions export-actions">
         <button onClick={onClose} disabled={busy}>
@@ -504,4 +507,10 @@ export const ExportView = ({
       </div>
     </div>
   );
+
+  // CEP's Chromium can stop repainting a fixed, scrollable dialog when it is
+  // composed below the Review layout. Keeping the export modal at the document
+  // root avoids that clipped compositing layer and keeps it stable while the
+  // panel is resized or scrolled.
+  return typeof document === "undefined" ? modal : createPortal(modal, document.body);
 };

@@ -422,7 +422,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
           />
-          <AnnotationOverlay drawing={annotation ?? null} />
+          <AnnotationOverlay drawing={annotation ?? null} videoRef={videoRef} />
           {loading && !error && <div className="stage-overlay">Loading…</div>}
           {error && <div className="stage-overlay error">{error}</div>}
         </div>

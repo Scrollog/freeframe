@@ -7,7 +7,8 @@ import { Dropdown, MenuAction } from "./Dropdown";
 import { AppearanceMenu, SortedByMenu, cardMinWidth } from "./BrowseControls";
 import { PromptDialog } from "./PromptDialog";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
-import { openLinkInBrowser } from "../../lib/utils/bolt";
+import { openLinkInBrowser, selectFile } from "../../lib/utils/bolt";
+import { fs, path } from "../../lib/cep/node";
 import {
   IconClose,
   IconCopy,
@@ -18,6 +19,7 @@ import {
   IconRefresh,
   IconSearch,
   IconTrash,
+  IconUpload,
 } from "./Icons";
 
 type SortKey = "name" | "date";
@@ -26,6 +28,22 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: "date", label: "Date" },
   { key: "name", label: "Name" },
 ];
+
+const posterMimeForPath = (filePath: string) => {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    default:
+      return "";
+  }
+};
 
 export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) => {
   const { api, settings } = useApp();
@@ -90,6 +108,38 @@ export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) 
     try {
       await api.deleteProject(project.id);
       await load(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onSetPoster = (project: Project) => {
+    selectFile("", "Choose project cover image", async (filePath) => {
+      const mimeType = posterMimeForPath(filePath);
+      if (!mimeType) {
+        setError("Choose a JPEG, PNG, WebP, or GIF image.");
+        return;
+      }
+
+      try {
+        const bytes = fs.readFileSync(filePath);
+        const file = new Blob([new Uint8Array(bytes)], { type: mimeType });
+        const updated = await api.uploadProjectPoster(project.id, file, path.basename(filePath));
+        setProjects((current) =>
+          current.map((entry) => (entry.id === project.id ? { ...entry, ...updated } : entry))
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  };
+
+  const onRemovePoster = async (project: Project) => {
+    try {
+      await api.removeProjectPoster(project.id);
+      setProjects((current) =>
+        current.map((entry) => (entry.id === project.id ? { ...entry, poster_url: null } : entry))
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -232,6 +282,24 @@ export const ProjectGrid = ({ onOpen }: { onOpen: (project: Project) => void }) 
                         navigator.clipboard?.writeText(projectUrl(project));
                       }}
                     />
+                    <MenuAction
+                      icon={<IconUpload width={14} height={14} />}
+                      label="Set cover image"
+                      onSelect={() => {
+                        close();
+                        onSetPoster(project);
+                      }}
+                    />
+                    {project.poster_url && (
+                      <MenuAction
+                        icon={<IconClose width={14} height={14} />}
+                        label="Remove cover image"
+                        onSelect={() => {
+                          close();
+                          onRemovePoster(project);
+                        }}
+                      />
+                    )}
                     <div className="menu-rule" />
                     <MenuAction
                       danger
