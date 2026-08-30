@@ -211,6 +211,21 @@ export class FreeFrameApi {
     return this.cachedBrowse<FolderNode[]>(`/projects/${projectId}/folder-tree`, refresh);
   }
 
+  createFolder(projectId: string, name: string, parentId: string | null = null) {
+    return this.request<FolderNode>(`/projects/${projectId}/folders`, {
+      method: "POST",
+      body: JSON.stringify({ name, parent_id: parentId }),
+    });
+  }
+
+  /** Move an asset to a folder, or to the project root when folderId is null. */
+  moveAsset(assetId: string, folderId: string | null) {
+    return this.request<{ ok: boolean }>(`/assets/${assetId}/move`, {
+      method: "PATCH",
+      body: JSON.stringify({ folder_id: folderId }),
+    });
+  }
+
   assets(projectId: string, folderId?: string | null, refresh = false) {
     const query = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : "";
     return this.cachedBrowse<Asset[]>(`/projects/${projectId}/assets${query}`, refresh);

@@ -2,7 +2,7 @@
 
 import useSWR from 'swr'
 import { api } from '@/lib/api'
-import type { Comment, Annotation, CommentReaction } from '@/types'
+import type { Comment, Annotation, CommentAttachment, CommentReaction } from '@/types'
 
 // ─── Extended comment type with nested data ───────────────────────────────────
 
@@ -10,6 +10,7 @@ export interface CommentWithReplies extends Comment {
   replies: CommentWithReplies[]
   annotation: Annotation | null
   reactions: CommentReaction[]
+  attachments: CommentAttachment[]
   author: {
     id: string
     name: string

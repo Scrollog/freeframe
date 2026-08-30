@@ -625,7 +625,7 @@ function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, 
         {/* Download button overlay */}
         {allowDownload && (
           <button
-            className="absolute z-10 top-2 right-2 flex items-center justify-center h-6 w-6 rounded-md bg-bg-primary/70 hover:bg-bg-primary/90 text-text-primary backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute z-10 top-2 right-2 flex h-6 w-6 items-center justify-center rounded-md bg-black/85 text-text-primary opacity-0 transition-opacity hover:bg-black group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               handleDownload(token, asset.id, shareSession)
@@ -1328,6 +1328,7 @@ function ShareReviewInner({
                   onRemoveReaction={() => {}}
                   onReply={() => {}}
                   onSubmitReply={async (parentId: string, body: string) => submitWithIdentity(body, undefined, undefined, undefined, parentId)}
+                  disableAttachments
                 />
                 {permission === 'approve' && (
                   <ShareApprovalActions token={token} assetId={asset.id} shareSession={shareSession} />
@@ -1338,6 +1339,7 @@ function ShareReviewInner({
                     projectId=""
                     assetType={asset.asset_type}
                     onSubmit={async (body: string, timecodeStart?: number, timecodeEnd?: number, annotationData?: Record<string, unknown>, parentId?: string) => submitWithIdentity(body, timecodeStart, timecodeEnd, annotationData, parentId)}
+                    allowAttachments={false}
                   />
                 )}
               </>

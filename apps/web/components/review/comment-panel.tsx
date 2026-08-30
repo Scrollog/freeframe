@@ -39,6 +39,8 @@ import {
 } from "@/lib/export-comments";
 import { FpsPromptDialog } from "@/components/review/fps-prompt-dialog";
 import { CommentThreadConnector } from "@/components/comments/comment-thread-connector";
+import { CommentAttachment } from "@/components/review/comment-attachment";
+import { submitCommentWithAttachment, validateCommentAttachment } from "@/lib/comment-attachments";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -56,7 +58,10 @@ interface CommentPanelProps {
   onAddReaction: (commentId: string, emoji: string) => Promise<void>;
   onRemoveReaction: (commentId: string, emoji: string) => Promise<void>;
   onReply: (parentId: string) => void;
-  onSubmitReply?: (parentId: string, body: string) => Promise<void>;
+  onSubmitReply?: (parentId: string, body: string) => Promise<{ id: string } | void>;
+  onAttachmentsUploaded?: () => void;
+  onDeleteAttachment?: (commentId: string, attachmentId: string) => Promise<void>;
+  disableAttachments?: boolean;
   /** Compare mode: route comment-timecode clicks to a pane-scoped transport instead of the global store. */
   onSeekToTimecode?: (time: number, pause?: boolean) => void;
   /** Compare mode: route annotation display to a pane-scoped overlay instead of the global store. */
@@ -156,6 +161,7 @@ function Dropdown({
   return (
     <div
       ref={ref}
+      onClick={(event) => event.stopPropagation()}
       className={cn(
         "absolute top-full mt-1 z-50 rounded-xl border border-border bg-bg-elevated shadow-2xl py-1.5 animate-in fade-in zoom-in-95 duration-100",
         align === "right" ? "right-0" : "left-0",
@@ -170,6 +176,8 @@ function Dropdown({
 // ─── Context menu ────────────────────────────────────────────────────────────
 
 function CommentMenu({
+  open,
+  onOpenChange,
   canEdit,
   canDelete,
   commentId,
@@ -177,6 +185,8 @@ function CommentMenu({
   onEdit,
   onDelete,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   canEdit: boolean;
   canDelete: boolean;
   commentId: string;
@@ -184,28 +194,31 @@ function CommentMenu({
   onEdit: () => void;
   onDelete: (commentId: string) => Promise<void>;
 }) {
-  const [open, setOpen] = React.useState(false);
-
   if (!canEdit && !canDelete) return null;
 
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen((p) => !p)}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenChange(!open);
+        }}
+        aria-expanded={open}
+        aria-haspopup="menu"
         className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary transition-colors"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
       <Dropdown
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => onOpenChange(false)}
         align="right"
         className="w-44"
       >
         {canEdit && (
           <button
             className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary hover:bg-bg-tertiary transition-colors"
-            onClick={() => { onEdit(); setOpen(false) }}
+            onClick={() => { onEdit(); onOpenChange(false) }}
           >
             <Pencil className="h-3.5 w-3.5" />
             Edit
@@ -222,7 +235,7 @@ function CommentMenu({
             }
             url.searchParams.set('commentId', commentId)
             navigator.clipboard.writeText(url.toString())
-            setOpen(false)
+            onOpenChange(false)
           }}
         >
           <Link2 className="h-3.5 w-3.5" />
@@ -233,7 +246,7 @@ function CommentMenu({
             className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-red-400 hover:bg-bg-tertiary transition-colors"
             onClick={() => {
               onDelete(commentId);
-              setOpen(false);
+              onOpenChange(false);
             }}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -251,16 +264,24 @@ function InlineReplyInput({
   parentId,
   onSubmit,
   onCancel,
+  onAttachmentsUploaded,
+  disableAttachments = false,
 }: {
   parentId: string;
-  onSubmit: (parentId: string, body: string) => Promise<void>;
+  onSubmit: (parentId: string, body: string) => Promise<{ id: string } | void>;
   onCancel: () => void;
+  onAttachmentsUploaded?: () => void;
+  disableAttachments?: boolean;
 }) {
   const [body, setBody] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const emojiRef = React.useRef<HTMLDivElement>(null);
+  const attachmentInputRef = React.useRef<HTMLInputElement>(null);
+  const [attachment, setAttachment] = React.useState<File | null>(null);
+  const [attachmentCommentId, setAttachmentCommentId] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     inputRef.current?.focus();
@@ -283,11 +304,19 @@ function InlineReplyInput({
     if (!trimmed || submitting) return;
     setSubmitting(true);
     try {
-      await onSubmit(parentId, trimmed);
+      const commentId = await submitCommentWithAttachment(
+        attachmentCommentId,
+        attachment,
+        () => onSubmit(parentId, trimmed),
+        onAttachmentsUploaded,
+      );
+      if (attachment && commentId) setAttachmentCommentId(commentId);
       setBody("");
+      setAttachment(null);
+      setAttachmentCommentId(null);
       onCancel();
-    } catch {
-      // error handled upstream
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to post reply');
     } finally {
       setSubmitting(false);
     }
@@ -310,11 +339,26 @@ function InlineReplyInput({
           if (e.key === "Escape") onCancel();
         }}
       />
+      {error && <p className="mt-1 text-xs text-status-error">{error}</p>}
+      {!disableAttachments && attachment && (
+        <div className="mt-2 flex w-fit items-center gap-1.5 rounded-md bg-bg-tertiary px-2 py-1 text-xs text-text-secondary">
+          <Paperclip className="h-3.5 w-3.5" />
+          <span className="max-w-48 truncate">{attachment.name}</span>
+          <button type="button" onClick={() => setAttachment(null)} className="text-text-tertiary hover:text-text-primary" title="Remove attachment"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-1">
-          <button className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors">
+          {!disableAttachments && <input ref={attachmentInputRef} type="file" className="hidden" onChange={(event) => {
+            const file = event.target.files?.[0]; event.target.value = '';
+            if (!file) return;
+            const validationError = validateCommentAttachment(file);
+            if (validationError) { setError(validationError); return; }
+            setError(null); setAttachment(file);
+          }} />}
+          {!disableAttachments && <button type="button" onClick={() => attachmentInputRef.current?.click()} title="Attach file" className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors">
             <Paperclip className="h-4 w-4" />
-          </button>
+          </button>}
           <div className="relative" ref={emojiRef}>
             <button
               onClick={() => setEmojiOpen((p) => !p)}
@@ -383,7 +427,10 @@ interface CommentItemProps {
   onRemoveReaction: (commentId: string, emoji: string) => Promise<void>;
   onReply: (parentId: string) => void;
   onCancelReply: () => void;
-  onSubmitReply?: (parentId: string, body: string) => Promise<void>;
+  onSubmitReply?: (parentId: string, body: string) => Promise<{ id: string } | void>;
+  onAttachmentsUploaded?: () => void;
+  onDeleteAttachment?: (commentId: string, attachmentId: string) => Promise<void>;
+  disableAttachments?: boolean;
   onSeekToTimecode?: (time: number, pause?: boolean) => void;
   onShowAnnotation?: (drawingData: Record<string, unknown> | null) => void;
 }
@@ -406,6 +453,9 @@ function CommentItem({
   onReply,
   onCancelReply,
   onSubmitReply,
+  onAttachmentsUploaded,
+  onDeleteAttachment,
+  disableAttachments,
   onSeekToTimecode,
   onShowAnnotation,
 }: CommentItemProps) {
@@ -416,6 +466,7 @@ function CommentItem({
   const setFocusedCommentId = useReviewStore((s) => s.setFocusedCommentId);
   const itemRef = React.useRef<HTMLDivElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
+  const [menuOpen, setMenuOpen] = React.useState(false);
   const [resolving, setResolving] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [editBody, setEditBody] = React.useState(comment.body);
@@ -476,7 +527,7 @@ function CommentItem({
   }
 
   return (
-    <CommentThreadConnector active={depth === 0 && hasReplies}>
+    <CommentThreadConnector active={depth === 0 && hasReplies} className={menuOpen ? "z-20" : undefined}>
       <div
         ref={itemRef}
         className={cn(
@@ -632,6 +683,19 @@ function CommentItem({
             </p>
           )}
 
+          {(comment.attachments?.length ?? 0) > 0 && (
+            <div className="mt-2 grid gap-2">
+              {comment.attachments!.map((attachment) => (
+                <CommentAttachment
+                  key={attachment.id}
+                  attachment={attachment}
+                  isOwn={isOwn}
+                  onDelete={onDeleteAttachment ? (attachmentId) => onDeleteAttachment(comment.id, attachmentId) : undefined}
+                />
+              ))}
+            </div>
+          )}
+
           {/* Reactions row */}
           {reactionGroups.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
@@ -688,8 +752,13 @@ function CommentItem({
               </div>
 
               {/* Context menu — hover only */}
-              <div className="opacity-0 group-hover/comment:opacity-100 transition-opacity">
+              <div className={cn(
+                "transition-opacity",
+                menuOpen ? "opacity-100" : "opacity-0 group-hover/comment:opacity-100",
+              )}>
                 <CommentMenu
+                  open={menuOpen}
+                  onOpenChange={setMenuOpen}
                   canEdit={canEdit}
                   canDelete={canDelete}
                   commentId={comment.id}
@@ -728,6 +797,8 @@ function CommentItem({
               parentId={comment.id}
               onSubmit={onSubmitReply}
               onCancel={onCancelReply}
+              onAttachmentsUploaded={onAttachmentsUploaded}
+              disableAttachments={disableAttachments}
             />
           )}
         </div>
@@ -754,6 +825,9 @@ function CommentItem({
               onReply={onReply}
               onCancelReply={onCancelReply}
               onSubmitReply={onSubmitReply}
+              onAttachmentsUploaded={onAttachmentsUploaded}
+              onDeleteAttachment={onDeleteAttachment}
+              disableAttachments={disableAttachments}
               onSeekToTimecode={onSeekToTimecode}
               onShowAnnotation={onShowAnnotation}
             />
@@ -804,6 +878,9 @@ export function CommentPanel({
   onRemoveReaction,
   onReply,
   onSubmitReply,
+  onAttachmentsUploaded,
+  onDeleteAttachment,
+  disableAttachments,
   onSeekToTimecode,
   onShowAnnotation,
   exportVersionId,
@@ -1341,6 +1418,9 @@ export function CommentPanel({
                 onReply={handleReply}
                 onCancelReply={() => setReplyingTo(null)}
                 onSubmitReply={onSubmitReply}
+                onAttachmentsUploaded={onAttachmentsUploaded}
+                onDeleteAttachment={onDeleteAttachment}
+                disableAttachments={disableAttachments}
                 onSeekToTimecode={onSeekToTimecode}
                 onShowAnnotation={onShowAnnotation}
               />

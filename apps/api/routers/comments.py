@@ -527,16 +527,12 @@ def create_attachment(
     # Generate S3 key
     key = f"comment-attachments/{comment_id}/{uuid.uuid4()}/{body.file_name}"
 
-    # Generate presigned PUT URL
-    s3 = s3_service.get_s3_client()
-    upload_url = s3.generate_presigned_url(
-        "put_object",
-        Params={
-            "Bucket": settings.s3_bucket,
-            "Key": key,
-            "ContentType": body.content_type,
-        },
-        ExpiresIn=3600,
+    # Generate a browser-reachable presigned URL. The server-side MinIO hostname
+    # (for example, http://minio:9000 in Docker) cannot be resolved by a browser.
+    upload_url = s3_service.generate_presigned_put_url(
+        key,
+        content_type=body.content_type,
+        expires_in=3600,
     )
 
     # Save attachment record

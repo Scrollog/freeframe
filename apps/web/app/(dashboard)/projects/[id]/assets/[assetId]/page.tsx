@@ -261,7 +261,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     visibility?: string,
     mentionUserIds?: string[],
   ) => {
-    await createComment(
+    const comment = await createComment(
       body,
       timecodeStart,
       timecodeEnd,
@@ -272,11 +272,13 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     )
     setAnnotationData(null)
     refetchComments()
+    return comment
   }
 
   const handleSubmitReply = async (parentId: string, body: string) => {
-    await createComment(body, undefined, undefined, undefined, parentId)
+    const comment = await createComment(body, undefined, undefined, undefined, parentId)
     refetchComments()
+    return comment
   }
 
   const versionReady = currentVersion?.processing_status === 'ready'
@@ -583,6 +585,11 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                     onRemoveReaction={removeReaction}
                     onReply={() => {}}
                     onSubmitReply={handleSubmitReply}
+                    onAttachmentsUploaded={refetchComments}
+                    onDeleteAttachment={async (commentId, attachmentId) => {
+                      await api.delete(`/comments/${commentId}/attachments/${attachmentId}`)
+                      await refetchComments()
+                    }}
                   />
                   {canComment && (
                     <CommentInput
@@ -591,6 +598,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                       assetType={asset.asset_type}
                       onSubmit={handleSubmitComment}
                       annotationData={annotationData}
+                      onAttachmentsUploaded={refetchComments}
                     />
                   )}
                 </>

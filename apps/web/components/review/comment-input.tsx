@@ -25,6 +25,7 @@ import { useReview } from "./review-provider";
 import { useDrawing } from "@/hooks/use-drawing";
 import { api } from "@/lib/api";
 import { resolveSubmitTimecode } from "@/lib/resolve-submit-timecode";
+import { submitCommentWithAttachment, validateCommentAttachment } from "@/lib/comment-attachments";
 import type { User } from "@/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,7 +44,9 @@ interface CommentInputProps {
     parentId?: string,
     visibility?: string,
     mentionUserIds?: string[],
-  ) => Promise<void>;
+  ) => Promise<{ id: string } | void>;
+  onAttachmentsUploaded?: () => void;
+  allowAttachments?: boolean;
   onCancelReply?: () => void;
   onPauseVideo?: () => void;
   /** Compare mode: pane-local playhead seconds; replaces the global store playheadTime. */
@@ -201,6 +204,8 @@ export function CommentInput({
   disableAnnotations,
   annotationActive,
   onToggleAnnotation,
+  onAttachmentsUploaded,
+  allowAttachments = true,
   className,
 }: CommentInputProps) {
   const {
@@ -243,7 +248,10 @@ export function CommentInput({
   >("public");
   const [visDropdownOpen, setVisDropdownOpen] = React.useState(false);
   const [timecodeAttached, setTimecodeAttached] = React.useState(true);
+  const [attachment, setAttachment] = React.useState<File | null>(null);
+  const [attachmentCommentId, setAttachmentCommentId] = React.useState<string | null>(null);
   const visRef = React.useRef<HTMLDivElement>(null);
+  const attachmentInputRef = React.useRef<HTMLInputElement>(null);
 
   // Emoji picker state
   const [emojiOpen, setEmojiOpen] = React.useState(false);
@@ -308,7 +316,7 @@ export function CommentInput({
   function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setBody(value);
-    if (value.trim() && hasTimecode && !selectedTimeRange) {
+    if (value.trim() && hasTimecode && timecodeAttached && !selectedTimeRange) {
       setSelectedTimeRange({ start: playheadTime, end: playheadTime });
     }
 
@@ -410,17 +418,25 @@ export function CommentInput({
         ? selectedTimeRange.end
         : undefined;
 
-      await onSubmit(
-        trimmed,
-        timecodeStart,
-        timecodeEnd,
-        finalAnnotation,
-        replyToId ?? undefined,
-        commentVisibility,
-        mentionUserIds.length > 0 ? mentionUserIds : undefined,
+      const commentId = await submitCommentWithAttachment(
+        attachmentCommentId,
+        attachment,
+        () => onSubmit(
+          trimmed,
+          timecodeStart,
+          timecodeEnd,
+          finalAnnotation,
+          replyToId ?? undefined,
+          commentVisibility,
+          mentionUserIds.length > 0 ? mentionUserIds : undefined,
+        ),
+        onAttachmentsUploaded,
       );
+      if (attachment && commentId) setAttachmentCommentId(commentId);
 
       setBody("");
+      setAttachment(null);
+      setAttachmentCommentId(null);
       setMentionUserIds([]);
       setSelectedTimeRange(null);
       // Drawing-state cleanup touches the SHARED singleton canvas + global store,
@@ -517,6 +533,15 @@ export function CommentInput({
         </div>
 
         {error && <p className="mt-1.5 text-xs text-red-400">{error}</p>}
+        {attachment && (
+          <div className="mt-2 flex w-fit items-center gap-1.5 rounded-md bg-bg-tertiary px-2 py-1 text-xs text-text-secondary">
+            <Paperclip className="h-3.5 w-3.5" />
+            <span className="max-w-48 truncate">{attachment.name}</span>
+            <button type="button" onClick={() => setAttachment(null)} className="text-text-tertiary hover:text-text-primary" title="Remove attachment">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bottom toolbar */}
@@ -622,6 +647,33 @@ export function CommentInput({
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
+              )}
+
+              {allowAttachments && (
+                <>
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = '';
+                      if (!file) return;
+                      const validationError = validateCommentAttachment(file);
+                      if (validationError) { setError(validationError); return; }
+                      setError(null);
+                      setAttachment(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-md text-text-tertiary hover:bg-bg-tertiary hover:text-text-secondary transition-colors"
+                    title="Attach file"
+                    onClick={() => attachmentInputRef.current?.click()}
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                </>
               )}
 
               {/* Emoji */}

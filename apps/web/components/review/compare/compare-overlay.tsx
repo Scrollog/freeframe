@@ -277,13 +277,13 @@ export function CompareOverlay({ asset, versions, rightVersion, onClose, canComm
   // renders (it's gated on onSubmitReply being defined).
   const handleReplyA = React.useCallback(
     async (parentId: string, body: string) => {
-      await sideA.createComment(body, undefined, undefined, undefined, parentId)
+      return sideA.createComment(body, undefined, undefined, undefined, parentId)
     },
     [sideA],
   )
   const handleReplyB = React.useCallback(
     async (parentId: string, body: string) => {
-      await sideB.createComment(body, undefined, undefined, undefined, parentId)
+      return sideB.createComment(body, undefined, undefined, undefined, parentId)
     },
     [sideB],
   )
@@ -404,7 +404,7 @@ export function CompareOverlay({ asset, versions, rightVersion, onClose, canComm
                   visibility?: string,
                   mentionUserIds?: string[],
                 ) => {
-                  await sideA.createComment(
+                  return sideA.createComment(
                     body,
                     timecodeStart,
                     timecodeEnd,
@@ -618,7 +618,7 @@ export function CompareOverlay({ asset, versions, rightVersion, onClose, canComm
                   visibility?: string,
                   mentionUserIds?: string[],
                 ) => {
-                  await sideB.createComment(
+                  return sideB.createComment(
                     body,
                     timecodeStart,
                     timecodeEnd,

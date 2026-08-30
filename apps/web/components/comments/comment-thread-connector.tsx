@@ -52,11 +52,13 @@ export function CommentThreadConnector({
     updateRail();
     const root = rootRef.current;
     if (!root) return;
-    const observer = new ResizeObserver(updateRail);
-    observer.observe(root);
+    const observer = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(updateRail)
+      : null;
+    observer?.observe(root);
     window.addEventListener("resize", updateRail);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener("resize", updateRail);
     };
   }, [updateRail]);

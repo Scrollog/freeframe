@@ -15,6 +15,8 @@ import {
   type SegmentLink,
 } from "../../lib/freeframe/host";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
+import { PromptDialog } from "./PromptDialog";
+import { MoveAssetDialog } from "./MoveAssetDialog";
 import { CollectionShareDialog } from "./CollectionShareDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ScrubThumb } from "./ScrubThumb";
@@ -100,6 +102,12 @@ export const AssetGrid = ({
   const [renamingId, setRenamingId] = useState("");
   const [draftName, setDraftName] = useState("");
   const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState("");
+  const [movingAsset, setMovingAsset] = useState<Asset | null>(null);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [moveError, setMoveError] = useState("");
 
   const folderId = crumbs[crumbs.length - 1].id;
 
@@ -248,6 +256,35 @@ export const AssetGrid = ({
     }
   };
 
+  const onCreateFolder = async (name: string) => {
+    setFolderBusy(true);
+    setFolderError("");
+    try {
+      await api.createFolder(project.id, name, folderId);
+      setCreatingFolder(false);
+      await load(true);
+    } catch (e) {
+      setFolderError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFolderBusy(false);
+    }
+  };
+
+  const onMoveAsset = async (targetFolderId: string | null) => {
+    if (!movingAsset || targetFolderId === movingAsset.folder_id) return;
+    setMoveBusy(true);
+    setMoveError("");
+    try {
+      await api.moveAsset(movingAsset.id, targetFolderId);
+      setMovingAsset(null);
+      await load(true);
+    } catch (e) {
+      setMoveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMoveBusy(false);
+    }
+  };
+
   const onDelete = async (asset: Asset) => {
     try {
       await api.deleteAsset(asset.id);
@@ -273,6 +310,39 @@ export const AssetGrid = ({
   return (
     <div className="browse">
       <ConfirmDialog request={confirming} onClose={() => setConfirming(null)} />
+      {creatingFolder && (
+        <PromptDialog
+          title="New folder"
+          label="Folder name"
+          placeholder="Untitled folder"
+          confirmLabel="Create folder"
+          busy={folderBusy}
+          error={folderError}
+          onConfirm={onCreateFolder}
+          onCancel={() => {
+            if (!folderBusy) {
+              setCreatingFolder(false);
+              setFolderError("");
+            }
+          }}
+        />
+      )}
+      {movingAsset && (
+        <MoveAssetDialog
+          assetName={movingAsset.name}
+          tree={tree}
+          currentFolderId={movingAsset.folder_id}
+          busy={moveBusy}
+          error={moveError}
+          onMove={onMoveAsset}
+          onClose={() => {
+            if (!moveBusy) {
+              setMovingAsset(null);
+              setMoveError("");
+            }
+          }}
+        />
+      )}
       {sharing && (
         <ShareDialog
           asset={sharing}
@@ -315,6 +385,13 @@ export const AssetGrid = ({
         >
           <IconShare width={13} height={13} />
           Share
+        </button>
+        <button
+          className="primary icon-btn"
+          onClick={() => setCreatingFolder(true)}
+          title={`Create folder${folderId ? " in this folder" : ""}`}
+        >
+          <IconFolder width={15} height={15} />
         </button>
         <button
           className="primary icon-btn"
@@ -538,6 +615,15 @@ export const AssetGrid = ({
                           close();
                           setDraftName(asset.name);
                           setRenamingId(asset.id);
+                        }}
+                      />
+                      <MenuAction
+                        icon={<IconFolder width={14} height={14} />}
+                        label="Move to folder"
+                        onSelect={() => {
+                          close();
+                          setMoveError("");
+                          setMovingAsset(asset);
                         }}
                       />
                       <MenuAction
