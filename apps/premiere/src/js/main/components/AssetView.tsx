@@ -9,8 +9,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../state";
 import type { Asset, AssetVersion, Comment } from "../../lib/freeframe/types";
 import { buildCommentNumbers } from "../../lib/freeframe/comment-numbers";
-import { formatTimecode } from "../../lib/freeframe/timecode";
-import { relativeTime, shortDate } from "../../lib/freeframe/format";
+import {
+  uploadCommentAttachment,
+  validateCommentAttachment,
+} from "../../lib/freeframe/comment-attachments";
+import {
+  commentAuthorName,
+  commentTreeContains,
+  EMPTY_REVIEW_FILTERS,
+  filterAndSortComments,
+  insertReplyIntoThread,
+  markerSignatureFor,
+  resolveSequenceLink,
+  timestampedComments,
+  type ReviewFilters,
+  type ReviewSortKey,
+} from "../../lib/freeframe/review";
+import { shortDate } from "../../lib/freeframe/format";
 import {
   clearLink,
   clearMarkers,
@@ -19,17 +34,18 @@ import {
   removeSegmentLink,
   setLink,
   setPlayheadSeconds,
-  syncComments,
   type AssetLink,
   type SegmentLink,
 } from "../../lib/freeframe/host";
+import { useMarkerSync } from "../hooks/useMarkerSync";
+import { useReviewComments } from "../hooks/useReviewComments";
 import { openLinkInBrowser } from "../../lib/utils/bolt";
-import { Player, type PlayerHandle } from "./Player";
+import { Player, type PlayerHandle } from "./player/Player";
 import { Dropdown, MenuAction, MenuCheck, MenuRadio } from "./Dropdown";
-import { EmojiPicker } from "./EmojiPicker";
-import { AutoTextarea } from "./AutoTextarea";
+import { CommentComposer } from "./comments/CommentComposer";
+import { CommentItem } from "./comments/CommentItem";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
-import { ShareDialog } from "./ShareDialog";
+import { ShareDialog } from "./share/ShareDialog";
 import {
   IconAnnotation,
   IconAttachment,
@@ -39,33 +55,26 @@ import {
   IconChevronLeft,
   IconChevronUp,
   IconCircle,
-  IconClose,
-  IconClock,
   IconCopy,
   IconDownload,
-  IconEmoji,
   IconExternal,
   IconFilm,
   IconFilter,
-  IconGlobe,
   IconLink,
   IconMarker,
   IconPlus,
   IconRename,
-  IconReply,
   IconSearch,
-  IconSend,
   IconShare,
   IconSort,
   IconTrash,
 } from "./Icons";
 
-const POLL_MS = 15000;
 const MIN_REVIEW_MAIN_WIDTH = 360;
 const MIN_REVIEW_SIDE_WIDTH = 240;
 const REVIEW_SPLIT_CHROME_WIDTH = 18;
 
-type SortKey = "timecode" | "oldest" | "newest" | "commenter" | "completed";
+type SortKey = ReviewSortKey;
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "oldest", label: "Oldest" },
@@ -75,31 +84,9 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: "completed", label: "Completed" },
 ];
 
-interface Filters {
-  annotations: boolean;
-  attachments: boolean;
-  completed: boolean;
-  incomplete: boolean;
-  person: string;
-}
-
-const NO_FILTERS: Filters = {
-  annotations: false,
-  attachments: false,
-  completed: false,
-  incomplete: false,
-  person: "",
-};
-
-const authorOf = (comment: Comment) =>
-  comment.author?.name || comment.guest_author?.name || "Guest";
-
-const initialsOf = (name: string) =>
-  name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
+type Filters = ReviewFilters;
+const NO_FILTERS = EMPTY_REVIEW_FILTERS;
+const authorOf = commentAuthorName;
 
 export const AssetView = ({
   asset,
@@ -122,10 +109,16 @@ export const AssetView = ({
   const [versions, setVersions] = useState<AssetVersion[]>([]);
   const [versionId, setVersionId] = useState(asset.latest_version?.id ?? "");
   const [segmentLinks, setSegmentLinks] = useState<SegmentLink[]>([]);
-  const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState("");
+  const { comments, setComments, refreshComments: loadComments } = useReviewComments({
+    api,
+    assetId: asset.id,
+    versionId,
+    onError: setError,
+  });
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [timecodeAttached, setTimecodeAttached] = useState(true);
   const [selectedTimeRange, setSelectedTimeRange] = useState<{
     start: number;
@@ -134,6 +127,7 @@ export const AssetView = ({
   const [visibility, setVisibility] = useState<"public" | "internal">("public");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+  const [replyAttachment, setReplyAttachment] = useState<File | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [videoTime, setVideoTime] = useState(0);
   const [searching, setSearching] = useState(false);
@@ -221,21 +215,15 @@ export const AssetView = ({
     };
   }, [asset.id, host.ok, host.sequenceId, versionId]);
 
-  const sequenceLink = link?.assetId === asset.id ? link : null;
-  const segmentLink = useMemo(
-    () =>
-      segmentLinks.find(
-        (entry) => entry.assetId === asset.id && entry.versionId === versionId
-      ) ?? segmentLinks.find((entry) => entry.assetId === asset.id) ?? null,
-    [asset.id, segmentLinks, versionId]
+  const { sequenceLink, segmentLink, isLinked, offsetSeconds: offset } = useMemo(
+    () => resolveSequenceLink({ assetId: asset.id, versionId, link, segmentLinks }),
+    [asset.id, versionId, link, segmentLinks]
   );
-  const isLinked = !!sequenceLink || !!segmentLink;
   // Segment comments are relative to the exported In/Out clip. The Premiere
   // marker must include that clip's real timeline start.
   // A direct sequence link may be recreated after an In/Out export. Keep the
   // segment's real timeline start authoritative, otherwise relinking would
   // replace it with the direct link's default offset (zero).
-  const offset = segmentLink?.inPoint ?? sequenceLink?.offsetSeconds ?? 0;
   const isVideo = asset.asset_type === "video";
   const hasTimecode = isVideo || asset.asset_type === "audio";
   const markersOn = settings.markersVisible;
@@ -253,13 +241,7 @@ export const AssetView = ({
     ? videoTime
     : Math.max(0, (host.playheadSeconds ?? 0) - offset);
 
-  const timed = useMemo(
-    () =>
-      comments
-        .filter((c) => c.timecode_start !== null && c.timecode_start !== undefined)
-        .sort((a, b) => (a.timecode_start as number) - (b.timecode_start as number)),
-    [comments]
-  );
+  const timed = useMemo(() => timestampedComments(comments), [comments]);
 
   const people = useMemo(() => {
     const names = new Set<string>();
@@ -274,50 +256,17 @@ export const AssetView = ({
     filters.incomplete ||
     !!filters.person;
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    const filtered = comments.filter((comment) => {
-      if (settings.hideResolved && comment.resolved) return false;
-      if (filters.completed && !comment.resolved) return false;
-      if (filters.incomplete && comment.resolved) return false;
-      if (filters.annotations && !comment.annotation) return false;
-      if (filters.attachments && !comment.attachments?.length) return false;
-      if (filters.person && authorOf(comment) !== filters.person) return false;
-      if (needle) {
-        const haystack = `${comment.body} ${authorOf(comment)} ${comment.replies
-          ?.map((reply) => reply.body)
-          .join(" ")}`.toLowerCase();
-        if (!haystack.includes(needle)) return false;
-      }
-      return true;
-    });
-
-    const at = (comment: Comment) =>
-      comment.timecode_start === null || comment.timecode_start === undefined
-        ? Number.MAX_SAFE_INTEGER
-        : comment.timecode_start;
-
-    return filtered.sort((a, b) => {
-      switch (sort) {
-        case "timecode":
-          return at(a) - at(b) || a.created_at.localeCompare(b.created_at);
-        case "newest":
-          return b.created_at.localeCompare(a.created_at);
-        case "commenter":
-          return (
-            authorOf(a).localeCompare(authorOf(b)) ||
-            a.created_at.localeCompare(b.created_at)
-          );
-        case "completed":
-          return (
-            Number(b.resolved) - Number(a.resolved) ||
-            a.created_at.localeCompare(b.created_at)
-          );
-        default:
-          return a.created_at.localeCompare(b.created_at);
-      }
-    });
-  }, [comments, query, sort, filters, settings.hideResolved]);
+  const visible = useMemo(
+    () =>
+      filterAndSortComments({
+        comments,
+        filters,
+        query,
+        sort,
+        hideResolved: settings.hideResolved,
+      }),
+    [comments, query, sort, filters, settings.hideResolved]
+  );
 
   const openCount = comments.filter((c) => !c.resolved).length;
 
@@ -339,26 +288,6 @@ export const AssetView = ({
       }
     })();
   }, [api, asset.id]);
-
-  const loadComments = useCallback(async (): Promise<Comment[] | null> => {
-    if (!versionId) return null;
-    try {
-      const list = await api.comments(asset.id, versionId);
-      setComments(list);
-      setError("");
-      return list;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return null;
-    }
-  }, [api, asset.id, versionId]);
-
-  useEffect(() => {
-    loadComments();
-    // The API has no comment stream yet, so the panel polls while it is open.
-    const timer = setInterval(loadComments, POLL_MS);
-    return () => clearInterval(timer);
-  }, [loadComments]);
 
   // -- navigation -------------------------------------------------------------
 
@@ -403,26 +332,13 @@ export const AssetView = ({
 
   // -- markers ----------------------------------------------------------------
 
-  const pushMarkers = useCallback(
-    async (list: Comment[]) => {
-      const result = await syncComments(list, {
-        offsetSeconds: offset,
-        fps: host.fps,
-        includeResolved: !settings.hideResolved,
-      });
-      if (!result.ok) {
-        setError(
-          result.error === "no_sequence"
-            ? "Open a sequence in Premiere first."
-            : `Marker sync failed: ${result.error}`
-        );
-        return null;
-      }
-      await refreshHost();
-      return result;
-    },
-    [offset, host.fps, settings.hideResolved, refreshHost]
-  );
+  const { pushMarkers } = useMarkerSync({
+    offsetSeconds: offset,
+    fps: host.fps,
+    includeResolved: !settings.hideResolved,
+    refreshHost,
+    onError: setError,
+  });
 
   /**
    * While markers are shown, keep them matching the thread — but only when the
@@ -432,9 +348,7 @@ export const AssetView = ({
   // Marker sync follows the same filtered thread the reviewer sees. This also
   // changes whenever search, status, author, attachment, or annotation filters
   // change the visible comment set.
-  const markerSignature = visible
-    .map((c) => `${c.id}:${c.resolved ? 1 : 0}:${c.timecode_start ?? ""}`)
-    .join("|");
+  const markerSignature = markerSignatureFor(visible);
 
   useEffect(() => {
     // Marker visibility is global to the extension, but the active sequence
@@ -637,7 +551,7 @@ export const AssetView = ({
     if (!draft.trim() || !versionId) return;
     setBusy(true);
     try {
-      await api.createComment(asset.id, {
+      const comment = await api.createComment(asset.id, {
         version_id: versionId,
         body: draft.trim(),
         timecode_start: timecodeAttached
@@ -651,7 +565,9 @@ export const AssetView = ({
             : undefined,
         visibility,
       });
+      if (attachment) await uploadCommentAttachment(api, comment.id, attachment);
       setDraft("");
+      setAttachment(null);
       setSelectedTimeRange(null);
       const list = await loadComments();
       // A newly exported In/Out asset is linked through its segment metadata,
@@ -671,10 +587,18 @@ export const AssetView = ({
   const onReply = async (commentId: string) => {
     if (!replyDraft.trim() || !versionId) return;
     try {
-      await api.reply(asset.id, commentId, versionId, replyDraft.trim());
+      const reply = await api.reply(asset.id, commentId, versionId, replyDraft.trim());
+      if (replyAttachment) await uploadCommentAttachment(api, reply.id, replyAttachment);
+      setComments((current) => insertReplyIntoThread(current, commentId, reply));
       setReplyDraft("");
+      setReplyAttachment(null);
       setReplyTo(null);
-      await loadComments();
+      const refreshed = await loadComments();
+      // Some API deployments briefly return a root-only list after reply
+      // creation. Preserve the new reply until the nested tree catches up.
+      if (refreshed && !commentTreeContains(refreshed, reply.id)) {
+        setComments(insertReplyIntoThread(refreshed, commentId, reply));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -725,6 +649,15 @@ export const AssetView = ({
     try {
       await api.deleteComment(comment.id);
       if (activeId === comment.id) setActiveId(null);
+      await loadComments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onDeleteAttachment = async (commentId: string, attachmentId: string) => {
+    try {
+      await api.deleteCommentAttachment(commentId, attachmentId);
       await loadComments();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1098,155 +1031,36 @@ export const AssetView = ({
 
           <ul className="comments" ref={listRef}>
             {visible.map((comment) => (
-              <li
+              <CommentItem
                 key={comment.id}
-                data-comment={comment.id}
-                className={`comment${comment.id === activeId ? " active" : ""}${
-                  comment.resolved ? " resolved" : ""
-                }${comment.replies?.length ? " has-replies" : ""}`}
-                onClick={() => jumpTo(comment)}
+                comment={comment}
+                active={comment.id === activeId}
+                isRead={readIds.has(comment.id)}
+                user={user}
+                index={indexOf.get(comment.id)}
+                justRead={justRead.has(comment.id)}
+                onToggleDone={() => onToggleDone(comment)}
+                fps={host.fps}
+                onDeleteAttachment={(attachmentId) => onDeleteAttachment(comment.id, attachmentId)}
+                onDeleteReplyAttachment={onDeleteAttachment}
+                onReact={(emoji) => onReact(comment, emoji)}
+                onReply={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
+                onOpen={() => openLinkInBrowser(assetUrl(comment.id))}
+                onDelete={() => setConfirming({ title: "Delete comment", body: "This comment will be removed from the review.", confirmLabel: "Delete", danger: true, onConfirm: () => onDeleteComment(comment) })}
+                replyTo={replyTo}
+                replyDraft={replyDraft}
+                replyAttachment={replyAttachment}
+                onReplyDraftChange={setReplyDraft}
+                onReplyAttachmentChange={(file) => {
+                  if (!file) return setReplyAttachment(null);
+                  const validationError = validateCommentAttachment(file);
+                  if (validationError) return setError(validationError);
+                  setError(""); setReplyAttachment(file);
+                }}
+                onReplySubmit={() => onReply(comment.id)}
+                onSelect={() => jumpTo(comment)}
               >
-                {user &&
-                  comment.author?.id !== user.id &&
-                  !readIds.has(comment.id) && <span className="unread-dot" />}
-                <div className="comment-head">
-                  <span className="avatar">
-                    {comment.author?.avatar_url ? (
-                      <img src={comment.author.avatar_url} alt="" />
-                    ) : (
-                      initialsOf(authorOf(comment))
-                    )}
-                  </span>
-                  <span className="author">{authorOf(comment)}</span>
-                  {comment.annotation && (
-                    <span className="has-annotation" title="Has an annotation">
-                      <IconAnnotation width={12} height={12} />
-                    </span>
-                  )}
-                  <span className="when">
-                    {justRead.has(comment.id)
-                      ? "Read by you"
-                      : relativeTime(comment.created_at)}
-                  </span>
-                  <span className="index">#{indexOf.get(comment.id)}</span>
-                  <button
-                    className={`done-box${comment.resolved ? " on" : ""}`}
-                    title={comment.resolved ? "Mark as not done" : "Mark as done"}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleDone(comment);
-                    }}
-                  >
-                    <IconCheck width={11} height={11} />
-                  </button>
-                </div>
-                <p className="body">
-                  {comment.timecode_start !== null && (
-                    <span className="tc">
-                      {formatTimecode(comment.timecode_start, host.fps)}
-                      {comment.timecode_end !== null &&
-                        comment.timecode_end !== undefined &&
-                        comment.timecode_end - comment.timecode_start > 0.05 && (
-                          <> – {formatTimecode(comment.timecode_end, host.fps)}</>
-                        )}
-                    </span>
-                  )}
-                  {comment.body}
-                </p>
-                {!!comment.replies?.length && (
-                  <div className="replies">
-                    {comment.replies.map((reply) => (
-                      <div key={reply.id} className="reply">
-                        <span className="avatar">
-                          {reply.author?.avatar_url ? (
-                            <img src={reply.author.avatar_url} alt="" />
-                          ) : (
-                            initialsOf(authorOf(reply))
-                          )}
-                        </span>
-                        <p>
-                          <strong>{authorOf(reply)}</strong> {reply.body}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!!comment.reactions?.length && (
-                  <div className="reactions" onClick={(e) => e.stopPropagation()}>
-                    {comment.reactions.map((reaction) => (
-                      <button
-                        key={reaction.emoji}
-                        className={`reaction${reaction.reacted ? " on" : ""}`}
-                        title={reaction.reacted ? "Remove your reaction" : "React"}
-                        onClick={() => onReact(comment, reaction.emoji)}
-                      >
-                        <span>{reaction.emoji}</span>
-                        {reaction.count}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="comment-actions" onClick={(e) => e.stopPropagation()}>
-                  <EmojiPicker
-                    title="React"
-                    trigger={<IconEmoji width={13} height={13} />}
-                    onPick={(emoji) => onReact(comment, emoji)}
-                  />
-                  <button
-                    className="text-btn"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setReplyTo(replyTo === comment.id ? null : comment.id);
-                    }}
-                  >
-                    <IconReply width={12} height={12} />
-                    Reply
-                  </button>
-                  <button
-                    className="text-btn"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openLinkInBrowser(assetUrl(comment.id));
-                    }}
-                  >
-                    <IconExternal width={12} height={12} />
-                    Open
-                  </button>
-                  {user &&
-                    (user.is_superadmin || comment.author?.id === user.id) && (
-                      <button
-                        className="text-btn danger"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setConfirming({
-                            title: "Delete comment",
-                            body: "This comment will be removed from the review.",
-                            confirmLabel: "Delete",
-                            danger: true,
-                            onConfirm: () => onDeleteComment(comment),
-                          });
-                        }}
-                      >
-                        <IconTrash width={12} height={12} />
-                        Delete
-                      </button>
-                    )}
-                </div>
-                {replyTo === comment.id && (
-                  <div className="reply-box" onClick={(event) => event.stopPropagation()}>
-                    <AutoTextarea
-                      value={replyDraft}
-                      onChange={(e) => setReplyDraft(e.target.value)}
-                      placeholder="Reply…"
-                      autoFocus
-                    />
-                    <EmojiPicker onPick={(emoji) => setReplyDraft((text) => text + emoji)} />
-                    <button className="primary" onClick={() => onReply(comment.id)}>
-                      <IconSend width={14} height={14} />
-                    </button>
-                  </div>
-                )}
-              </li>
+              </CommentItem>
             ))}
             {!visible.length && (
               <li className="muted empty">
@@ -1255,108 +1069,35 @@ export const AssetView = ({
             )}
           </ul>
 
-          <div className="composer">
-            <div className="composer-input">
-              {timecodeAttached && (
-                <span className="tc composer-tc">
-                  {selectedTimeRange ? (
-                    selectedTimeRange.end - selectedTimeRange.start > 0.05 ? (
-                      <>
-                        {formatTimecode(selectedTimeRange.start, host.fps)} –{" "}
-                        {formatTimecode(selectedTimeRange.end, host.fps)}
-                      </>
-                    ) : (
-                      formatTimecode(selectedTimeRange.start, host.fps)
-                    )
-                  ) : (
-                    formatTimecode(composerTime, host.fps)
-                  )}
-                  {selectedTimeRange && (
-                    <button
-                      className="range-clear"
-                      onClick={() => setSelectedTimeRange(null)}
-                      title="Clear selected range"
-                    >
-                      <IconClose width={10} height={10} />
-                    </button>
-                  )}
-                </span>
-              )}
-              <AutoTextarea
-                value={draft}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setDraft(value);
-                  if (
-                    value.trim() &&
-                    hasTimecode &&
-                    timecodeAttached &&
-                    !selectedTimeRange
-                  ) {
-                    setSelectedTimeRange({ start: composerTime, end: composerTime });
-                  }
-                }}
-                placeholder="Leave your comment…"
-              />
-            </div>
-            <div className="composer-actions">
-              <EmojiPicker onPick={(emoji) => setDraft((text) => text + emoji)} />
-              {hasTimecode && (
-                <button
-                  className={`icon-btn timecode-toggle${timecodeAttached ? " on" : ""}`}
-                  onClick={() => {
-                    if (timecodeAttached) setSelectedTimeRange(null);
-                    setTimecodeAttached((attached) => !attached);
-                  }}
-                  title={timecodeAttached ? "Detach timecode" : "Attach timecode"}
-                >
-                  <IconClock width={14} height={14} />
-                </button>
-              )}
-              <span className="spacer" />
-              <Dropdown
-                up
-                align="right"
-                triggerClass="chip with-icon"
-                trigger={
-                  <>
-                    <IconGlobe width={13} height={13} />
-                    {visibility === "internal" ? "Internal" : "Public"}
-                    <IconChevronDown width={12} height={12} />
-                  </>
-                }
-              >
-                {(close) => (
-                  <>
-                    <MenuRadio
-                      label="Public — everyone on the asset"
-                      checked={visibility === "public"}
-                      onSelect={() => {
-                        setVisibility("public");
-                        close();
-                      }}
-                    />
-                    <MenuRadio
-                      label="Internal — team only"
-                      checked={visibility === "internal"}
-                      onSelect={() => {
-                        setVisibility("internal");
-                        close();
-                      }}
-                    />
-                  </>
-                )}
-              </Dropdown>
-              <button
-                className="primary"
-                onClick={onPost}
-                disabled={busy || !draft.trim()}
-                title="Post"
-              >
-                <IconSend width={14} height={14} />
-              </button>
-            </div>
-          </div>
+          <CommentComposer
+            draft={draft}
+            attachment={attachment}
+            busy={busy}
+            fps={host.fps}
+            hasTimecode={hasTimecode}
+            timecodeAttached={timecodeAttached}
+            composerTime={composerTime}
+            selectedTimeRange={selectedTimeRange}
+            visibility={visibility}
+            onDraftChange={setDraft}
+            onAttachmentChange={(file) => {
+              if (!file) {
+                setAttachment(null);
+                return;
+              }
+              const validationError = validateCommentAttachment(file);
+              if (validationError) {
+                setError(validationError);
+                return;
+              }
+              setError("");
+              setAttachment(file);
+            }}
+            onTimecodeAttachedChange={setTimecodeAttached}
+            onSelectedTimeRangeChange={setSelectedTimeRange}
+            onVisibilityChange={setVisibility}
+            onPost={onPost}
+          />
         </div>
       </div>
     </div>

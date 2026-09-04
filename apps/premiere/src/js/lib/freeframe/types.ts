@@ -114,6 +114,15 @@ export interface Reaction {
   reacted: boolean;
 }
 
+export interface CommentAttachment {
+  id: string;
+  file_name: string;
+  file_size: number;
+  content_type: string;
+  /** Presigned download URL, refreshed whenever comments are loaded. */
+  url: string;
+}
+
 export interface Comment {
   id: string;
   asset_id: string;
@@ -129,7 +138,7 @@ export interface Comment {
   guest_author: { id: string; name: string; email: string } | null;
   replies: Comment[];
   annotation?: Annotation | null;
-  attachments?: unknown[];
+  attachments?: CommentAttachment[];
   reactions?: Reaction[];
 }
 

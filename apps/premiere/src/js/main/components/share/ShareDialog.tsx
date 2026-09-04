@@ -6,17 +6,17 @@
  * every time the dialog opens.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useApp } from "../state";
+import { useApp } from "../../state";
 import type {
   Asset,
   ShareLink,
   ShareOptions,
   SharePermission,
-} from "../../lib/freeframe/types";
-import { openLinkInBrowser } from "../../lib/utils/bolt";
-import { Dropdown, MenuRadio } from "./Dropdown";
-import { Toggle } from "./Toggle";
-import { ScrubThumb } from "./ScrubThumb";
+} from "../../../lib/freeframe/types";
+import { openLinkInBrowser } from "../../../lib/utils/bolt";
+import { Dropdown, MenuRadio } from "../Dropdown";
+import { Toggle } from "../Toggle";
+import { ScrubThumb } from "../ScrubThumb";
 import {
   IconCheck,
   IconChevronDown,
@@ -34,7 +34,7 @@ import {
   IconPlus,
   IconRename,
   IconTrash,
-} from "./Icons";
+} from "../Icons";
 
 const VISIBILITY = [
   { key: "public" as const, label: "Public", hint: "Anyone with the link" },

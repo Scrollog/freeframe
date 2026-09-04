@@ -471,6 +471,7 @@ function CommentItem({
   const [editing, setEditing] = React.useState(false);
   const [editBody, setEditBody] = React.useState(comment.body);
   const [saving, setSaving] = React.useState(false);
+  const [avatarError, setAvatarError] = React.useState(false);
 
   // Scroll into view when focused from progress bar marker click
   React.useEffect(() => {
@@ -488,6 +489,7 @@ function CommentItem({
   const avatarColor = getAvatarColor(authorName);
   const isReplyingHere = replyingTo === comment.id;
   const hasReplies = (comment.replies?.length ?? 0) > 0;
+  const avatarUrl = comment.author?.avatar_url;
 
   // Group reactions by emoji
   const reactionGroups = React.useMemo(() => {
@@ -565,11 +567,19 @@ function CommentItem({
         <div
           data-comment-thread-avatar
           className={cn(
-            "h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-bold text-text-inverse shrink-0 mt-0.5",
+            "h-8 w-8 overflow-hidden rounded-full flex items-center justify-center text-[11px] font-bold text-text-inverse shrink-0 mt-0.5",
             avatarColor,
           )}
         >
-          {getInitials(authorName)}
+          {avatarUrl && !avatarError ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt={authorName}
+              className="h-full w-full object-cover"
+              onError={() => setAvatarError(true)}
+            />
+          ) : getInitials(authorName)}
         </div>
 
         <div className="flex-1 min-w-0">

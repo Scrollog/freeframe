@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { useApp } from "../state";
-import type { ShareLink, ShareOptions } from "../../lib/freeframe/types";
-import { openLinkInBrowser } from "../../lib/utils/bolt";
-import { Dropdown, MenuRadio } from "./Dropdown";
-import { Toggle } from "./Toggle";
+import { useApp } from "../../state";
+import type { ShareLink, ShareOptions } from "../../../lib/freeframe/types";
+import { openLinkInBrowser } from "../../../lib/utils/bolt";
+import { Dropdown, MenuRadio } from "../Dropdown";
+import { Toggle } from "../Toggle";
 import {
   IconCheck,
   IconChevronDown,
@@ -18,7 +18,7 @@ import {
   IconLink,
   IconPlus,
   IconTrash,
-} from "./Icons";
+} from "../Icons";
 
 const VISIBILITY = [
   { key: "public" as const, label: "Public" },

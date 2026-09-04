@@ -390,6 +390,22 @@ export class FreeFrameApi {
     return this.request<void>(`/comments/${commentId}`, { method: "DELETE" });
   }
 
+  createCommentAttachment(
+    commentId: string,
+    body: { file_name: string; file_size: number; content_type: string }
+  ) {
+    return this.request<{ upload_url: string; attachment_id: string }>(
+      `/comments/${commentId}/attachments`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  }
+
+  deleteCommentAttachment(commentId: string, attachmentId: string) {
+    return this.request<void>(`/comments/${commentId}/attachments/${attachmentId}`, {
+      method: "DELETE",
+    });
+  }
+
   // -- upload -----------------------------------------------------------------
 
   initiateUpload(body: {

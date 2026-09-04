@@ -17,8 +17,8 @@ import {
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { PromptDialog } from "./PromptDialog";
 import { MoveAssetDialog } from "./MoveAssetDialog";
-import { CollectionShareDialog } from "./CollectionShareDialog";
-import { ShareDialog } from "./ShareDialog";
+import { CollectionShareDialog } from "./share/CollectionShareDialog";
+import { ShareDialog } from "./share/ShareDialog";
 import { ScrubThumb } from "./ScrubThumb";
 import {
   IconCloudUpload,
