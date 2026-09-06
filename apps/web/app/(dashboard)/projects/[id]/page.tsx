@@ -242,6 +242,21 @@ export default function ProjectDetailPage() {
     return map;
   }, [assets]);
 
+  const commentCounts = React.useMemo(() => {
+    if (!assets) return {};
+    return Object.fromEntries(assets.map((asset) => [asset.id, asset.comment_count ?? 0]));
+  }, [assets]);
+
+  const durations = React.useMemo(() => {
+    if (!assets) return {};
+    const map: Record<string, number> = {};
+    for (const asset of assets) {
+      const duration = asset.latest_version?.files?.find((file) => file.duration_seconds != null)?.duration_seconds;
+      if (duration != null && duration > 0) map[asset.id] = duration;
+    }
+    return map;
+  }, [assets]);
+
   // Fetch user info for asset authors
   const authorIds = React.useMemo(() => {
     if (!assets) return [];
@@ -774,6 +789,8 @@ export default function ProjectDetailPage() {
               versionCounts={versionCounts}
               authorNames={authorNames}
               fileSizes={fileSizes}
+              commentCounts={commentCounts}
+              durations={durations}
               selectedAssetId={selectedAsset?.id}
               onUpload={() => setUploadOpen(true)}
               onAssetSelect={(asset, e) => {

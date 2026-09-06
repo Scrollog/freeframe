@@ -39,6 +39,8 @@ interface AssetGridProps {
   versionCounts?: Record<string, number>
   authorNames?: Record<string, string>
   fileSizes?: Record<string, number>
+  commentCounts?: Record<string, number>
+  durations?: Record<string, number>
   selectedAssetId?: string | null
   onUpload?: () => void
   onAssetSelect?: (asset: Asset, e?: React.MouseEvent) => void
@@ -91,6 +93,8 @@ export function AssetGrid({
   versionCounts = {},
   authorNames = {},
   fileSizes = {},
+  commentCounts = {},
+  durations = {},
   selectedAssetId,
   onUpload,
   onAssetSelect,
@@ -342,6 +346,8 @@ export function AssetGrid({
                 authorName={authorNames[asset.created_by]}
                 thumbnailUrl={thumbnails[asset.id]}
                 fileSize={fileSizes[asset.id] ?? null}
+                commentCount={commentCounts[asset.id]}
+                duration={durations[asset.id] ?? null}
                 selected={selectedAssetIds.has(asset.id)}
                 active={selectedAssetId === asset.id}
                 onSelect={() => toggleAssetSelect(asset.id)}

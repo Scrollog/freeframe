@@ -145,6 +145,7 @@ export interface AssetVersion {
 export interface AssetResponse extends Asset {
   latest_version: AssetVersion | null;
   thumbnail_url: string | null;
+  comment_count?: number;
 }
 
 export interface MediaFile {
