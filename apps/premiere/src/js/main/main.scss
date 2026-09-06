@@ -2156,6 +2156,11 @@ button {
     }
   }
 
+  .reply-content {
+    flex: 1;
+    min-width: 0;
+  }
+
   &:hover .reply:last-child::after,
   &.active .reply:last-child::after {
     background: $bg-elevated;

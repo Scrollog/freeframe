@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   CheckCircle2,
   Clock,
@@ -197,11 +198,11 @@ function CommentMenu({
   if (!canEdit && !canDelete) return null;
 
   return (
-    <div className="relative">
-      <button
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+      <DropdownMenu.Trigger asChild>
+        <button
         onClick={(event) => {
           event.stopPropagation();
-          onOpenChange(!open);
         }}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -209,24 +210,27 @@ function CommentMenu({
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      <Dropdown
-        open={open}
-        onClose={() => onOpenChange(false)}
-        align="right"
-        className="w-44"
-      >
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          collisionPadding={8}
+          onClick={(event) => event.stopPropagation()}
+          className="z-[1000] w-44 rounded-xl border border-border bg-bg-elevated shadow-2xl py-1.5 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+        >
         {canEdit && (
-          <button
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary hover:bg-bg-tertiary transition-colors"
-            onClick={() => { onEdit(); onOpenChange(false) }}
+          <DropdownMenu.Item
+            className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary outline-none data-[highlighted]:bg-bg-tertiary"
+            onSelect={() => onEdit()}
           >
             <Pencil className="h-3.5 w-3.5" />
             Edit
-          </button>
+          </DropdownMenu.Item>
         )}
-        <button
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary hover:bg-bg-tertiary transition-colors"
-          onClick={() => {
+        <DropdownMenu.Item
+          className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-[13px] text-text-secondary outline-none data-[highlighted]:bg-bg-tertiary"
+          onSelect={() => {
             let url: URL
             if (assetId && window.location.pathname.match(/\/projects\/[^/]+$/)) {
               url = new URL(`${window.location.pathname}/assets/${assetId}`, window.location.origin)
@@ -235,26 +239,25 @@ function CommentMenu({
             }
             url.searchParams.set('commentId', commentId)
             navigator.clipboard.writeText(url.toString())
-            onOpenChange(false)
           }}
         >
           <Link2 className="h-3.5 w-3.5" />
           Copy Link
-        </button>
+        </DropdownMenu.Item>
         {canDelete && (
-          <button
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-red-400 hover:bg-bg-tertiary transition-colors"
-            onClick={() => {
+          <DropdownMenu.Item
+            className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-[13px] text-red-400 outline-none data-[highlighted]:bg-bg-tertiary"
+            onSelect={() => {
               onDelete(commentId);
-              onOpenChange(false);
             }}
           >
             <Trash2 className="h-3.5 w-3.5" />
             Delete
-          </button>
+          </DropdownMenu.Item>
         )}
-      </Dropdown>
-    </div>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 

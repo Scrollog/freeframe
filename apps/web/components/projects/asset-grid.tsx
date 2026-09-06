@@ -331,10 +331,7 @@ export function AssetGrid({
           {filtered.map((asset) => (
             <div
               key={asset.id}
-              className={cn(
-                'rounded-lg transition-all cursor-pointer',
-                selectedAssetId === asset.id && 'ring-2 ring-accent ring-offset-1 ring-offset-bg-primary',
-              )}
+              className="rounded-lg cursor-pointer"
               onClick={(e) => onAssetSelect?.(asset, e)}
               onDoubleClick={() => onAssetOpen?.(asset)}
             >
@@ -342,11 +339,11 @@ export function AssetGrid({
                 asset={asset}
                 projectId={projectId}
                 versionCount={versionCounts[asset.id]}
-                assignee={asset.assignee_id ? assignees[asset.assignee_id] : null}
                 authorName={authorNames[asset.created_by]}
                 thumbnailUrl={thumbnails[asset.id]}
                 fileSize={fileSizes[asset.id] ?? null}
                 selected={selectedAssetIds.has(asset.id)}
+                active={selectedAssetId === asset.id}
                 onSelect={() => toggleAssetSelect(asset.id)}
                 showInfo={showCardInfo}
                 showFileSize={showFileSize}

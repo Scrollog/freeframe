@@ -13,7 +13,6 @@ import {
   Music,
   Loader2,
   MessageSquare,
-  Layers,
   PanelRightClose,
   PanelRightOpen,
   PanelBottomClose,
@@ -31,6 +30,7 @@ import { useReview, type CreateCommentPayload } from '@/components/review/review
 import { useReviewStore } from '@/stores/review-store'
 import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
 import { CommentThreadConnector } from '@/components/comments/comment-thread-connector'
+import { SharedAssetCard } from '@/components/shared/asset-card'
 import type {
   SharePermission,
   ShareLinkAppearance,
@@ -62,6 +62,8 @@ interface FolderShareViewerProps {
   showVersions: boolean
   appearance: ShareLinkAppearance
   branding: ShareBranding | null
+  /** Opens this asset when the share is first loaded, then returns to the same root on back. */
+  initialAssetId?: string | null
   onAssetClick?: (assetId: string) => void
   embedded?: boolean
   editableHeader?: boolean
@@ -214,14 +216,6 @@ function formatShortDate(dateStr: string): string {
   })
 }
 
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-
 function getAssetTypeIcon(assetType: string): React.ElementType {
   switch (assetType) {
     case 'video': return Video
@@ -263,6 +257,22 @@ async function fetchDownloadUrl(token: string, assetId: string, shareSession?: s
   } catch {
     return null
   }
+}
+
+async function fetchSharePreviewUrl(token: string, assetId: string, shareSession?: string | null): Promise<string | null> {
+  const params = new URLSearchParams({ _: '1' })
+  if (shareSession) params.set('share_session', shareSession)
+  const headers: Record<string, string> = {}
+  try {
+    const accessToken = localStorage.getItem('ff_access_token')
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  } catch {}
+
+  const response = await fetch(`${API_URL}/share/${token}/stream/${assetId}?${params}`, { headers })
+  if (!response.ok) return null
+  const data = await response.json() as { url?: string }
+  if (!data.url) return null
+  return data.url.startsWith('/') ? `${API_URL}${data.url}` : data.url
 }
 
 async function handleDownload(token: string, assetId: string, shareSession?: string | null) {
@@ -393,265 +403,6 @@ function ListRowThumb({ asset, TypeIcon }: { asset: FolderShareAssetItem; TypeIc
 }
 
 // ─── Asset Grid Card (Frame.io style) ────────────────────────────────────────
-
-interface AssetGridCardProps {
-  asset: FolderShareAssetItem
-  allowDownload: boolean
-  token: string
-  shareSession?: string | null
-  isSelected: boolean
-  onSelect: (asset: FolderShareAssetItem) => void
-  onOpen: (asset: FolderShareAssetItem) => void
-  aspectClass?: string
-  thumbnailScale?: 'fit' | 'fill'
-  showCardInfo?: boolean
-  accentColor: string
-}
-
-function ScrubbableVideoThumbnail({
-  asset,
-  token,
-  shareSession,
-  thumbnailScale,
-  onThumbnailError,
-}: {
-  asset: FolderShareAssetItem
-  token: string
-  shareSession?: string | null
-  thumbnailScale: 'fit' | 'fill'
-  onThumbnailError: () => void
-}) {
-  const [hovering, setHovering] = React.useState(false)
-  const [ready, setReady] = React.useState(false)
-  const [ratio, setRatio] = React.useState(0)
-  const videoRef = React.useRef<HTMLVideoElement>(null)
-  const hlsRef = React.useRef<{ destroy: () => void } | null>(null)
-  const seekFrameRef = React.useRef<number | null>(null)
-  const queuedRatioRef = React.useRef(0)
-  const streamUrlRef = React.useRef<string | null>(null)
-
-  const teardown = React.useCallback(() => {
-    if (seekFrameRef.current !== null) cancelAnimationFrame(seekFrameRef.current)
-    seekFrameRef.current = null
-    hlsRef.current?.destroy()
-    hlsRef.current = null
-    const video = videoRef.current
-    if (video) {
-      video.pause()
-      video.removeAttribute('src')
-      video.load()
-    }
-    setReady(false)
-    setRatio(0)
-  }, [])
-
-  React.useEffect(() => {
-    if (!hovering) {
-      teardown()
-      return
-    }
-
-    let cancelled = false
-    const loadPreview = async () => {
-      try {
-        let streamUrl = streamUrlRef.current
-        if (!streamUrl) {
-          const params = new URLSearchParams({ _: '1' })
-          if (shareSession) params.set('share_session', shareSession)
-          const headers: Record<string, string> = {}
-          try {
-            const accessToken = localStorage.getItem('ff_access_token')
-            if (accessToken) headers.Authorization = `Bearer ${accessToken}`
-          } catch {}
-          const response = await fetch(`${API_URL}/share/${token}/stream/${asset.id}?${params}`, { headers })
-          if (!response.ok) throw new Error('Could not load preview')
-          const data = await response.json() as { url?: string }
-          if (!data.url) throw new Error('Preview URL missing')
-          streamUrl = data.url.startsWith('/') ? `${API_URL}${data.url}` : data.url
-          streamUrlRef.current = streamUrl
-        }
-        const video = videoRef.current
-        if (cancelled || !video || !streamUrl) return
-
-        if (!streamUrl.includes('.m3u8')) {
-          video.src = streamUrl
-          video.load()
-          return
-        }
-        const { default: Hls } = await import('hls.js')
-        if (cancelled || !videoRef.current) return
-        if (Hls.isSupported()) {
-          const hls = new Hls({ enableWorker: false, startLevel: 0, capLevelToPlayerSize: true })
-          hls.loadSource(streamUrl)
-          hls.attachMedia(videoRef.current)
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            if (!cancelled) setReady(true)
-          })
-          hlsRef.current = hls
-        } else {
-          videoRef.current.src = streamUrl
-          videoRef.current.load()
-        }
-      } catch {
-        // Keep the static thumbnail when the preview cannot be loaded.
-      }
-    }
-    void loadPreview()
-    return () => { cancelled = true }
-  }, [asset.id, hovering, shareSession, teardown, token])
-
-  React.useEffect(() => () => teardown(), [teardown])
-
-  const seekToRatio = (nextRatio: number) => {
-    queuedRatioRef.current = nextRatio
-    if (seekFrameRef.current !== null) return
-    seekFrameRef.current = requestAnimationFrame(() => {
-      seekFrameRef.current = null
-      const video = videoRef.current
-      if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return
-      const nextTime = queuedRatioRef.current * video.duration
-      try {
-        if ('fastSeek' in video && typeof video.fastSeek === 'function') video.fastSeek(nextTime)
-        else video.currentTime = nextTime
-      } catch {}
-    })
-  }
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== 'mouse') return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const nextRatio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
-    setRatio(nextRatio)
-    if (ready) seekToRatio(nextRatio)
-  }
-
-  return (
-    <div
-      className="absolute inset-0 cursor-ew-resize"
-      onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHovering(true) }}
-      onPointerLeave={() => setHovering(false)}
-      onPointerMove={handlePointerMove}
-    >
-      {asset.thumbnail_url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={asset.thumbnail_url}
-          alt={asset.name}
-          className={cn('h-full w-full transition-transform duration-200 group-hover:scale-[1.02]', thumbnailScale === 'fill' ? 'object-cover' : 'object-contain')}
-          onError={onThumbnailError}
-        />
-      )}
-      {hovering && (
-        <video
-          ref={videoRef}
-          muted
-          playsInline
-          preload="metadata"
-          onLoadedMetadata={() => setReady(true)}
-          className={cn('absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-100', ready && 'opacity-100')}
-        />
-      )}
-      {hovering && ready && <span className="pointer-events-none absolute inset-y-0 z-0 w-px bg-accent" style={{ left: `${ratio * 100}%` }} />}
-    </div>
-  )
-}
-
-function AssetGridCard({ asset, allowDownload, token, shareSession, isSelected, onSelect, onOpen, aspectClass = 'aspect-[16/10]', thumbnailScale = 'fill', showCardInfo = true, accentColor }: AssetGridCardProps) {
-  const TypeIcon = getAssetTypeIcon(asset.asset_type)
-  const [imgError, setImgError] = React.useState(false)
-
-  return (
-    <div
-      className={cn(
-        'group flex flex-col rounded-lg border overflow-hidden transition-all cursor-pointer',
-        isSelected
-          ? ''
-          : 'border-border hover:border-border-focus',
-        'bg-bg-tertiary hover:bg-bg-hover',
-      )}
-      style={isSelected ? { borderColor: accentColor } : undefined}
-      onClick={() => onSelect(asset)}
-      onDoubleClick={() => onOpen(asset)}
-      onPointerUp={(event) => {
-        if (event.pointerType === 'touch') onOpen(asset)
-      }}
-    >
-      {/* Thumbnail */}
-      <div className={cn('w-full relative overflow-hidden bg-bg-tertiary', aspectClass)}>
-        {asset.thumbnail_url && !imgError && asset.asset_type === 'video' ? (
-          <ScrubbableVideoThumbnail
-            asset={asset}
-            token={token}
-            shareSession={shareSession}
-            thumbnailScale={thumbnailScale}
-            onThumbnailError={() => setImgError(true)}
-          />
-        ) : asset.thumbnail_url && !imgError ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={asset.thumbnail_url} alt={asset.name} className={cn('h-full w-full transition-transform duration-200 group-hover:scale-[1.02]', thumbnailScale === 'fill' ? 'object-cover' : 'object-contain')} onError={() => setImgError(true)} />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bg-hover text-text-secondary">
-              <TypeIcon className="h-7 w-7" />
-            </div>
-          </div>
-        )}
-
-        {/* Version count badge — top left (only when multiple versions exist) */}
-        {(asset.version_count ?? 1) > 1 && (
-          <div className="absolute z-10 top-2 left-2 flex items-center gap-1 bg-bg-primary/80 backdrop-blur-sm rounded-md px-1.5 py-0.5" title={`${asset.version_count} versions`}>
-            <Layers className="h-3 w-3 text-text-primary" />
-            <span className="text-[10px] font-medium text-text-primary tabular-nums">{asset.version_count}</span>
-          </div>
-        )}
-
-        {/* Comment count badge — bottom left */}
-        {asset.comment_count > 0 && (
-          <div className="absolute z-10 bottom-2 left-2 flex h-6 min-w-11 items-center justify-center gap-1 rounded-md bg-black/85 px-1.5">
-            <MessageSquare className="h-3 w-3 text-text-primary" />
-            <span className="text-[10px] font-medium text-text-primary">{asset.comment_count}</span>
-          </div>
-        )}
-
-        {/* Duration badge — bottom right (video/audio) */}
-        {asset.duration_seconds != null && asset.duration_seconds > 0 && (
-          <div className="absolute z-10 bottom-2 right-2 flex h-6 min-w-11 items-center justify-center rounded-md bg-black/85 px-1.5">
-            <span className="text-[10px] font-medium text-text-primary tabular-nums">
-              {formatDuration(asset.duration_seconds)}
-            </span>
-          </div>
-        )}
-
-        {/* Download button overlay */}
-        {allowDownload && (
-          <button
-            className="absolute z-10 top-2 right-2 flex h-6 w-6 items-center justify-center rounded-md bg-black/85 text-text-primary opacity-0 transition-opacity hover:bg-black group-hover:opacity-100"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDownload(token, asset.id, shareSession)
-            }}
-            onPointerUp={(e) => e.stopPropagation()}
-            title="Download"
-          >
-            <Download className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-
-      {/* Info — name, author, date */}
-      {showCardInfo && (
-        <div className="px-3 py-2.5">
-          <p className="text-sm font-medium text-text-primary line-clamp-1">{asset.name}</p>
-          <p className="text-xs text-text-tertiary mt-0.5 truncate">
-            {asset.created_by_name && <>{asset.created_by_name} &middot; </>}
-            {formatShortDate(asset.created_at)}
-            {asset.file_size != null && <> &middot; {formatFileSize(asset.file_size)}</>}
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── Section Header ──────────────────────────────────────────────────────────
 
@@ -1460,6 +1211,7 @@ export function FolderShareViewer({
   showVersions,
   appearance,
   branding,
+  initialAssetId = null,
   onAssetClick,
   embedded = false,
   editableHeader = false,
@@ -1475,6 +1227,7 @@ export function FolderShareViewer({
   const [assetsExpanded, setAssetsExpanded] = React.useState(true)
   const [panelOpen, setPanelOpen] = React.useState(false)
   const [viewingAsset, setViewingAsset] = React.useState<FolderShareAssetItem | null>(null)
+  const pendingInitialAssetId = React.useRef(initialAssetId)
   const headerAppearance = {
     key: appearance.header_banner_key,
     url: appearance.header_banner_url ?? null,
@@ -1567,6 +1320,11 @@ export function FolderShareViewer({
         setSubfolders(data.subfolders ?? [])
         setTotal(data.total ?? 0)
         setPage(1)
+        if (!currentSubfolderId && pendingInitialAssetId.current) {
+          const initialAsset = data.assets?.find((asset) => asset.id === pendingInitialAssetId.current)
+          if (initialAsset) setViewingAsset(initialAsset)
+          pendingInitialAssetId.current = null
+        }
       })
       .catch(() => {
         if (!cancelled) setError('Failed to load contents')
@@ -1942,19 +1700,30 @@ export function FolderShareViewer({
                         {isGridLayout ? (
                           <div className={cn('grid gap-3 mt-2', gridCols)}>
                             {filteredAssets.map((asset) => (
-                              <AssetGridCard
+                              <SharedAssetCard
                                 key={asset.id}
-                                asset={asset}
-                                allowDownload={allowDownload}
-                                token={token}
-                                shareSession={shareSession}
-                                isSelected={selectedAsset?.id === asset.id}
-                                onSelect={setSelectedAsset}
-                                onOpen={openInViewer ? setViewingAsset : () => {}}
+                                asset={{
+                                  id: asset.id,
+                                  name: asset.name,
+                                  assetType: asset.asset_type,
+                                  thumbnailUrl: asset.thumbnail_url,
+                                  commentCount: asset.comment_count,
+                                  versionCount: asset.version_count,
+                                  durationSeconds: asset.duration_seconds,
+                                  createdByName: asset.created_by_name,
+                                  createdAt: asset.created_at,
+                                  fileSize: asset.file_size,
+                                }}
+                                selected={selectedAsset?.id === asset.id}
+                                onSelect={() => setSelectedAsset(asset)}
+                                onOpen={openInViewer ? () => setViewingAsset(asset) : undefined}
+                                onDownload={allowDownload ? () => handleDownload(token, asset.id, shareSession) : undefined}
                                 aspectClass={aspectClass}
                                 thumbnailScale={thumbnailScale}
-                                showCardInfo={showCardInfo}
-                                accentColor={accentColor}
+                                showInfo={showCardInfo}
+                                getVideoPreviewUrl={asset.asset_type === 'video'
+                                  ? () => fetchSharePreviewUrl(token, asset.id, shareSession)
+                                  : undefined}
                               />
                             ))}
                           </div>

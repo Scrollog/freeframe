@@ -4,6 +4,7 @@
 #51 — all video HLS traffic must route through /stream/hls so S3 can stay private.
 """
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from jose import jwt
@@ -204,3 +205,53 @@ def test_share_stream_endpoint_video_returns_hls_proxy_url(
     payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     assert payload["sub"] == "hls"
     assert payload["pfx"] == "processed/proj/version-stream"
+
+
+@patch("apps.api.routers.share._ready_version_count", return_value=2)
+@patch("apps.api.routers.share._latest_version_comment_count", return_value=3)
+@patch("apps.api.routers.share._get_latest_media_file")
+@patch("apps.api.routers.share._get_asset")
+@patch("apps.api.routers.share.validate_share_link_with_session")
+def test_asset_share_assets_exposes_a_single_item_virtual_root(
+    mock_validate,
+    mock_get_asset,
+    mock_get_latest_media_file,
+    _mock_comment_count,
+    _mock_version_count,
+    client,
+    mock_db,
+):
+    """Asset links use the same folder payload, limited to their sole asset."""
+    from apps.api.models.asset import AssetType
+
+    asset_id = uuid.uuid4()
+    link = MagicMock()
+    link.asset_id = asset_id
+    link.folder_id = None
+    link.project_id = None
+    link.show_versions = True
+    mock_validate.return_value = link
+
+    asset = MagicMock()
+    asset.id = asset_id
+    asset.name = "shared video"
+    asset.asset_type = AssetType.video
+    asset.created_at = datetime.now(timezone.utc)
+    asset.created_by = None
+    mock_get_asset.return_value = asset
+
+    media_file = MagicMock()
+    media_file.s3_key_thumbnail = None
+    media_file.file_size_bytes = 1234
+    media_file.duration_seconds = 42.0
+    mock_get_latest_media_file.return_value = media_file
+
+    response = client.get("/share/some-token/assets")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["subfolders"] == []
+    assert len(payload["assets"]) == 1
+    assert payload["assets"][0]["id"] == str(asset_id)
+    assert payload["assets"][0]["name"] == "shared video"

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { AlertTriangle, Clock, Loader2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FolderShareViewer, ShareReviewScreen, type ShareBranding } from '@/components/share/folder-share-viewer'
+import { FolderShareViewer, type ShareBranding } from '@/components/share/folder-share-viewer'
 import type { Asset, ShareLinkAppearance, SharePermission } from '@/types'
 
 interface ShareValidateResponse {
@@ -93,8 +93,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
     | { stage: 'expired' }
     | { stage: 'invalid' }
     | { stage: 'auth_required'; title?: string }
-    | { stage: 'ready'; asset: Asset; permission: SharePermission; allowDownload: boolean; showVersions: boolean }
-    | { stage: 'folder_ready'; folderName: string; title: string; description: string | null; createdByName: string | null; createdByAvatarUrl: string | null; viewerName: string | null; permission: SharePermission; allowDownload: boolean; showVersions: boolean; appearance: ShareLinkAppearance; branding: ShareBranding | null }
+    | { stage: 'folder_ready'; folderName: string; title: string; description: string | null; createdByName: string | null; createdByAvatarUrl: string | null; viewerName: string | null; permission: SharePermission; allowDownload: boolean; showVersions: boolean; appearance: ShareLinkAppearance; branding: ShareBranding | null; initialAssetId: string | null }
 
   const [state, setState] = React.useState<PageState>({ stage: 'loading' })
   const [shareSession, setShareSession] = React.useState<string | null>(null)
@@ -112,23 +111,20 @@ export default function SharePage({ params }: { params: { token: string } }) {
       if (!data.permission) return setState({ stage: 'invalid' })
       if (data.share_session) setShareSession(data.share_session)
 
-      if ((data.folder_id || data.project_id) && !data.asset_id) {
-        const folderName = data.folder_name ?? data.project_name ?? 'Shared'
-        const appearance: ShareLinkAppearance = {
-          layout: 'grid', theme: 'dark', accent_color: null, open_in_viewer: true,
-          sort_by: 'created_at', card_size: 'm', aspect_ratio: 'landscape', thumbnail_scale: 'fill', show_card_info: true, header_banner_key: null, header_banner_position_x: 50, header_banner_position_y: 50, header_banner_zoom: 1,
-          ...(data.appearance ?? {}),
-        }
-        return setState({
-          stage: 'folder_ready', folderName, title: data.title ?? folderName, description: data.description ?? null,
-          createdByName: data.created_by_name ?? null, createdByAvatarUrl: data.created_by_avatar_url ?? null, viewerName: data.viewer_name ?? null,
-          permission: data.permission, allowDownload: data.allow_download ?? false, showVersions: data.show_versions ?? true,
-          appearance, branding: data.branding ?? null,
-        })
-      }
+      if (!data.folder_id && !data.project_id && !data.asset_id) return setState({ stage: 'invalid' })
 
-      if (!data.asset) return setState({ stage: 'invalid' })
-      setState({ stage: 'ready', asset: data.asset, permission: data.permission, allowDownload: data.allow_download ?? false, showVersions: data.show_versions ?? true })
+      const folderName = data.folder_name ?? data.project_name ?? data.title ?? data.asset?.name ?? 'Shared'
+      const appearance: ShareLinkAppearance = {
+        layout: 'grid', theme: 'dark', accent_color: null, open_in_viewer: true,
+        sort_by: 'created_at', card_size: 'm', aspect_ratio: 'landscape', thumbnail_scale: 'fill', show_card_info: true, header_banner_key: null, header_banner_position_x: 50, header_banner_position_y: 50, header_banner_zoom: 1,
+        ...(data.appearance ?? {}),
+      }
+      setState({
+        stage: 'folder_ready', folderName, title: data.title ?? folderName, description: data.description ?? null,
+        createdByName: data.created_by_name ?? null, createdByAvatarUrl: data.created_by_avatar_url ?? null, viewerName: data.viewer_name ?? null,
+        permission: data.permission, allowDownload: data.allow_download ?? false, showVersions: data.show_versions ?? true,
+        appearance, branding: data.branding ?? null, initialAssetId: data.asset_id ?? null,
+      })
     } catch {
       setState({ stage: 'invalid' })
     }
@@ -144,7 +140,6 @@ export default function SharePage({ params }: { params: { token: string } }) {
     return <div className="flex min-h-screen items-center justify-center bg-bg-primary p-4"><div className="w-full max-w-sm rounded-xl border border-border bg-bg-secondary p-6 shadow-xl text-center"><div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-muted"><Lock className="h-6 w-6 text-accent" /></div><h1 className="text-lg font-semibold text-text-primary">{state.title || 'Secure Share Link'}</h1><p className="mt-2 text-sm text-text-tertiary">This link is private. Please sign in to view the shared content.</p><a href="/login" className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent/90 transition-colors">Sign in to continue</a></div></div>
   }
   if (state.stage === 'folder_ready') {
-    return <FolderShareViewer token={token} shareSession={shareSession} folderName={state.folderName} title={state.title} description={state.description} createdByName={state.createdByName} createdByAvatarUrl={state.createdByAvatarUrl} viewerName={state.viewerName} permission={state.permission} allowDownload={state.allowDownload} showVersions={state.showVersions} appearance={state.appearance} branding={state.branding} />
+    return <FolderShareViewer token={token} shareSession={shareSession} folderName={state.folderName} title={state.title} description={state.description} createdByName={state.createdByName} createdByAvatarUrl={state.createdByAvatarUrl} viewerName={state.viewerName} permission={state.permission} allowDownload={state.allowDownload} showVersions={state.showVersions} appearance={state.appearance} branding={state.branding} initialAssetId={state.initialAssetId} />
   }
-  return <ShareReviewScreen token={token} shareSession={shareSession} assetId={state.asset.id} assetName={state.asset.name} permission={state.permission} allowDownload={state.allowDownload} showVersions={state.showVersions} />
 }

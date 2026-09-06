@@ -1273,14 +1273,49 @@ def get_folder_share_assets(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
-    """Public endpoint — optional auth. Returns assets and subfolders for a folder or project share link.
+    """Public endpoint — optional auth. Returns the contents of a shared root.
 
     The authenticated link creator bypasses the passphrase (e.g. the dashboard settings preview),
     matching `/share/{token}/stream/{asset_id}`.
+
+    Asset links intentionally behave as a one-item virtual folder. This keeps the
+    public share experience consistent while preserving the direct asset link as
+    the entry point to its viewer.
     """
     link = validate_share_link_with_session(db, token, share_session=share_session, current_user=current_user)
 
     is_project_share = link.project_id is not None
+    if link.asset_id:
+        if folder_id:
+            raise HTTPException(status_code=403, detail="Asset share links do not contain folders")
+
+        asset = _get_asset(db, link.asset_id)
+        media_file = _get_latest_media_file(db, asset.id)
+        creator = db.query(User).filter(User.id == asset.created_by).first() if asset.created_by else None
+        asset_item = FolderShareAssetItem(
+            id=asset.id,
+            name=asset.name,
+            asset_type=asset.asset_type.value if hasattr(asset.asset_type, "value") else str(asset.asset_type),
+            thumbnail_url=(
+                generate_presigned_get_url(media_file.s3_key_thumbnail)
+                if media_file and media_file.s3_key_thumbnail
+                else None
+            ),
+            file_size=media_file.file_size_bytes if media_file else None,
+            duration_seconds=media_file.duration_seconds if media_file else None,
+            comment_count=_latest_version_comment_count(db, asset.id),
+            version_count=_ready_version_count(db, asset.id) if link.show_versions else 1,
+            created_by_name=creator.name if creator else None,
+            created_at=asset.created_at,
+        )
+        return FolderShareAssetsResponse(
+            assets=[asset_item] if page == 1 else [],
+            subfolders=[],
+            total=1,
+            page=page,
+            per_page=per_page,
+        )
+
     if not link.folder_id and not is_project_share:
         raise HTTPException(status_code=400, detail="This share link is not a folder or project share")
 

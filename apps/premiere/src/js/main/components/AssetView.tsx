@@ -1059,8 +1059,7 @@ export const AssetView = ({
                 }}
                 onReplySubmit={() => onReply(comment.id)}
                 onSelect={() => jumpTo(comment)}
-              >
-              </CommentItem>
+              />
             ))}
             {!visible.length && (
               <li className="muted empty">
