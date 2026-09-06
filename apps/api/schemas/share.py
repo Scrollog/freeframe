@@ -38,6 +38,7 @@ class ShareLinkCreate(BaseModel):
     password: Optional[str] = None
     allow_download: bool = False
     title: Optional[str] = None
+    custom_slug: Optional[str] = Field(default=None, max_length=120)
     description: Optional[str] = None
     show_versions: bool = True
     show_watermark: bool = False
@@ -48,6 +49,7 @@ class MultiShareCreate(BaseModel):
     asset_ids: list[uuid.UUID] = []
     folder_ids: list[uuid.UUID] = []
     title: Optional[str] = None
+    custom_slug: Optional[str] = Field(default=None, max_length=120)
     permission: SharePermission = SharePermission.view
     visibility: str = "public"
     expires_at: Optional[datetime] = None
@@ -65,6 +67,7 @@ class ShareLinkResponse(BaseModel):
     project_id: Optional[uuid.UUID] = None
     token: str
     short_code: str
+    custom_slug: Optional[str] = None
     title: str
     description: Optional[str] = None
     is_enabled: bool
@@ -113,6 +116,7 @@ class ShareLinkMetadataResponse(BaseModel):
 
 class ShareLinkUpdate(BaseModel):
     title: Optional[str] = None
+    custom_slug: Optional[str] = Field(default=None, max_length=120)
     description: Optional[str] = None
     permission: Optional[SharePermission] = None
     visibility: Optional[str] = None

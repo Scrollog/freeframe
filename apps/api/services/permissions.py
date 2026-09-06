@@ -7,6 +7,7 @@ from ..models.project import Project, ProjectMember, ProjectRole
 from ..models.asset import Asset
 from ..models.folder import Folder
 from ..models.share import AssetShare, ShareLink, ShareLinkItem, SharePermission
+from ..services.share_link_aliases import resolve_share_link
 from ..services.redis_service import verify_share_session
 
 
@@ -116,10 +117,7 @@ def get_asset_share_permission(db: Session, asset: Asset, user: User) -> SharePe
 def validate_share_link(db: Session, token: str) -> ShareLink:
     """Validate a long token or short code and return the link. Raises 404/410 on failure."""
     from datetime import datetime, timezone
-    link = db.query(ShareLink).filter(
-        or_(ShareLink.token == token, ShareLink.short_code == token),
-        ShareLink.deleted_at.is_(None),
-    ).first()
+    link = resolve_share_link(db, token)
     if not link:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share link not found")
     if not link.is_enabled:

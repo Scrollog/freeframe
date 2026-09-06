@@ -12,7 +12,7 @@ from ..models.asset import (
 )
 from ..models.comment import Comment, Annotation, CommentAttachment, CommentReaction
 from ..models.approval import Approval
-from ..models.share import ShareLink, ShareLinkItem, ShareLinkActivity, AssetShare
+from ..models.share import ShareLink, ShareLinkAlias, ShareLinkItem, ShareLinkActivity, AssetShare
 from ..models.project import Project, ProjectMember
 from ..models.folder import Folder
 from ..models.metadata import MetadataField, AssetMetadata, Collection, CollectionShare
@@ -116,11 +116,12 @@ def _purge_version(db, version_id, counts: PurgeCounts) -> None:
 
 
 def _purge_share_link(db, share_link_id, counts: PurgeCounts) -> None:
-    """Hard-delete a share link and its items, activity, and watermark override."""
+    """Hard-delete a share link and all of its dependent records."""
     link = db.query(ShareLink).filter(ShareLink.id == share_link_id).first()
     if link is None:
         return
     db.query(ShareLinkItem).filter(ShareLinkItem.share_link_id == share_link_id).delete(synchronize_session=False)
+    db.query(ShareLinkAlias).filter(ShareLinkAlias.share_link_id == share_link_id).delete(synchronize_session=False)
     db.query(ShareLinkActivity).filter(ShareLinkActivity.share_link_id == share_link_id).delete(synchronize_session=False)
     db.query(WatermarkSettings).filter(WatermarkSettings.share_link_id == share_link_id).delete(synchronize_session=False)
     db.query(ShareLink).filter(ShareLink.id == share_link_id).delete(synchronize_session=False)

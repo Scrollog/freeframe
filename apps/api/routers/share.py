@@ -47,6 +47,7 @@ from ..services.permissions import (
     require_project_role, validate_share_link, validate_share_link_with_session,
     validate_asset_in_share, _is_descendant_of,
 )
+from ..services.share_link_aliases import get_active_custom_slug, set_custom_slug
 from ..services.redis_service import create_share_session
 from ..services import s3_service
 from ..services.s3_service import generate_presigned_get_url, build_download_filename
@@ -220,6 +221,8 @@ def create_share_link(
         appearance=body.appearance.model_dump(),
     )
     db.add(link)
+    db.flush()
+    set_custom_slug(db, link, body.custom_slug)
     db.add(ActivityLog(user_id=current_user.id, asset_id=asset_id, action=ActivityAction.shared))
     db.commit()
     db.refresh(link)
@@ -374,9 +377,11 @@ def validate_share_link_endpoint(
     )
 
 
-def _share_link_response(link: ShareLink) -> ShareLinkResponse:
+def _share_link_response(link: ShareLink, db: Session | None = None) -> ShareLinkResponse:
     """Build ShareLinkResponse from ORM model, computing has_password and decrypting password."""
     response = ShareLinkResponse.model_validate(link)
+    if db:
+        response.custom_slug = get_active_custom_slug(db, link.id)
     response.appearance = _share_appearance_with_banner_url(link.appearance)
     response.has_password = link.password_hash is not None and link.password_hash != ''
     if link.password_encrypted:
@@ -430,7 +435,7 @@ def get_share_link_details(
         raise HTTPException(status_code=404, detail="Share link not found")
     project_id = _get_project_id_from_link(db, link)
     require_project_role(db, project_id, current_user, ProjectRole.viewer)
-    return _share_link_response(link)
+    return _share_link_response(link, db)
 
 
 @router.post(
@@ -483,6 +488,9 @@ def update_share_link(
 
     updates = body.model_dump(exclude_unset=True)
 
+    if "custom_slug" in updates:
+        set_custom_slug(db, link, updates.pop("custom_slug"))
+
     # Handle password separately — hash + encrypt for reversible admin display
     if "password" in updates:
         raw_password = updates.pop("password")
@@ -515,7 +523,7 @@ def update_share_link(
             s3_service.delete_object(previous_banner_key)
         except Exception:
             pass
-    return _share_link_response(link)
+    return _share_link_response(link, db)
 
 
 @router.delete("/share/{token}", status_code=status.HTTP_204_NO_CONTENT)
@@ -571,6 +579,8 @@ def create_folder_share_link(
         appearance=body.appearance.model_dump(),
     )
     db.add(link)
+    db.flush()
+    set_custom_slug(db, link, body.custom_slug)
     db.commit()
     db.refresh(link)
     return link
@@ -615,6 +625,8 @@ def create_project_share_link(
         appearance=body.appearance.model_dump(),
     )
     db.add(link)
+    db.flush()
+    set_custom_slug(db, link, body.custom_slug)
     db.commit()
     db.refresh(link)
     return link
@@ -1249,6 +1261,7 @@ def create_multi_share_link(
     )
     db.add(link)
     db.flush()
+    set_custom_slug(db, link, body.custom_slug)
 
     # Insert share_link_items
     for aid in body.asset_ids:

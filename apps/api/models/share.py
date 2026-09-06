@@ -58,6 +58,25 @@ class ShareLink(Base):
         ),
     )
 
+
+class ShareLinkAlias(Base):
+    """A human-friendly public identifier for a share link.
+
+    Retired aliases remain reserved, so a link that has been renamed cannot be
+    impersonated later by a different share link.
+    """
+    __tablename__ = "share_link_aliases"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    share_link_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("share_links.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ShareLinkItem(Base):
     __tablename__ = "share_link_items"
 

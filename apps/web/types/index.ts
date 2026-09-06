@@ -275,6 +275,7 @@ export interface ShareLink {
   project_id: string | null;
   token: string;
   short_code: string;
+  custom_slug: string | null;
   title: string;
   description: string | null;
   created_by: string;
@@ -307,6 +308,7 @@ export interface ShareLinkListItem {
   id: string
   token: string
   short_code: string
+  custom_slug?: string | null
   title: string
   description: string | null
   is_enabled: boolean

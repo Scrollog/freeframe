@@ -22,6 +22,7 @@ def _password_link_owned_by(user, *, project_id=None, folder_id=None):
     link.id = uuid.uuid4()
     link.password_hash = "$2b$12$hashvalue"
     link.created_by = user.id
+    link.asset_id = None
     link.project_id = project_id
     link.folder_id = folder_id
     link.allow_download = False

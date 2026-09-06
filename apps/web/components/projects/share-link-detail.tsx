@@ -855,7 +855,7 @@ export function ShareLinkContent({
     }
   }, [shareLink, projectId]);
 
-  const shareUrl = `${frontendUrl}/s/${shareLink?.short_code ?? token}`;
+  const shareUrl = `${frontendUrl}/s/${shareLink?.custom_slug ?? shareLink?.short_code ?? token}`;
 
   if (!shareLink) {
     return (
@@ -1070,12 +1070,15 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
   const [localAccentColor, setLocalAccentColor] = React.useState("");
   const [appearanceOpen, setAppearanceOpen] = React.useState(false);
   const [bannerDialogOpen, setBannerDialogOpen] = React.useState(false);
+  const [customSlug, setCustomSlug] = React.useState("");
+  const [customSlugError, setCustomSlugError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (shareLink) {
       setPasswordEnabled(shareLink.has_password ?? false);
       setLocalPassword(shareLink.password_value || "");
       setLocalAccentColor(shareLink.appearance?.accent_color || "");
+      setCustomSlug(shareLink.custom_slug || "");
     }
   }, [shareLink]);
 
@@ -1091,8 +1094,22 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
 
   const shareUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/s/${shareLink?.short_code ?? token}`
-      : `/s/${shareLink?.short_code ?? token}`;
+      ? `${window.location.origin}/s/${shareLink?.custom_slug ?? shareLink?.short_code ?? token}`
+      : `/s/${shareLink?.custom_slug ?? shareLink?.short_code ?? token}`;
+
+  async function saveCustomSlug() {
+    if (!shareLink) return;
+    try {
+      const updated = await api.patch<ShareLink>(`/share/${token}`, {
+        custom_slug: customSlug.trim() || null,
+      });
+      setCustomSlug(updated.custom_slug || "");
+      setCustomSlugError(null);
+      await mutate(updated, false);
+    } catch (error) {
+      setCustomSlugError(error instanceof Error ? error.message : "Could not save the custom link name.");
+    }
+  }
 
   if (!shareLink) {
     return (
@@ -1169,6 +1186,37 @@ export function ShareLinkSettingsPanel({ token }: ShareLinkSettingsPanelProps) {
                   <option value="public">🌐 Public</option>
                   <option value="secure">🔒 Secure</option>
                 </select>
+              </div>
+              <div className="mt-2 space-y-1.5">
+                <label htmlFor="custom-share-link" className="block text-2xs font-medium text-text-secondary">
+                  Custom link
+                </label>
+                <div className="flex items-center rounded-md border border-border bg-bg-tertiary focus-within:border-accent/60">
+                  <span className="shrink-0 select-none border-r border-border px-2.5 py-2 font-mono text-2xs text-text-tertiary">/s/</span>
+                  <input
+                    id="custom-share-link"
+                    value={customSlug}
+                    onChange={(event) => {
+                      setCustomSlug(event.target.value);
+                      setCustomSlugError(null);
+                    }}
+                    onBlur={saveCustomSlug}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                      if (event.key === "Escape") {
+                        setCustomSlug(shareLink.custom_slug || "");
+                        setCustomSlugError(null);
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    placeholder="review-client"
+                    maxLength={120}
+                    className="min-w-0 flex-1 bg-transparent px-2.5 py-2 font-mono text-xs text-text-primary outline-none placeholder:text-text-tertiary"
+                  />
+                </div>
+                <p className={cn("text-2xs", customSlugError ? "text-status-error" : "text-text-tertiary")}>
+                  {customSlugError || "Optional. Names are normalized to lowercase URL-safe text."}
+                </p>
               </div>
               {shareLink.visibility === "secure" && (
                 <p className="text-2xs text-text-tertiary mt-1">
