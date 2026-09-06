@@ -193,6 +193,52 @@ def test_both_initiate_paths_record_the_upload_id(real_db, monkeypatch, path):
     assert version.last_activity_at is not None
 
 
+@pytest.mark.parametrize("handler", ["upload", "asset"])
+def test_new_version_number_skips_soft_deleted_versions(real_db, monkeypatch, handler):
+    """A deleted version still occupies its immutable version number."""
+    from apps.api.models.user import User
+    from apps.api.models.project import Project, ProjectType
+    from apps.api.models.asset import Asset, AssetType, AssetVersion, ProcessingStatus
+    from apps.api.schemas.upload import InitiateUploadRequest
+    import apps.api.routers.assets as assets_module
+
+    owner = User(email=f"sequence-{uuid.uuid4()}@t.local", name="t")
+    real_db.add(owner); real_db.flush()
+    project = Project(name="t", project_type=ProjectType.personal, created_by=owner.id)
+    real_db.add(project); real_db.flush()
+    asset = Asset(project_id=project.id, name="clip", asset_type=AssetType.video,
+                  created_by=owner.id)
+    real_db.add(asset); real_db.flush()
+    for number, deleted in ((1, False), (2, True), (3, False)):
+        real_db.add(AssetVersion(
+            asset_id=asset.id,
+            version_number=number,
+            processing_status=ProcessingStatus.ready,
+            created_by=owner.id,
+            deleted_at=datetime.now(timezone.utc) if deleted else None,
+        ))
+    real_db.flush()
+
+    for mod in (upload_module, assets_module):
+        monkeypatch.setattr(mod, "create_multipart_upload", lambda k, m: "new-upload",
+                            raising=False)
+        monkeypatch.setattr(mod, "upload_guard_error", lambda db, n: None, raising=False)
+        monkeypatch.setattr(mod, "require_project_role", lambda *a, **k: None,
+                            raising=False)
+    body = InitiateUploadRequest(
+        project_id=project.id, asset_name="clip", original_filename="clip.mp4",
+        mime_type="video/mp4", file_size_bytes=1024, asset_id=asset.id,
+    )
+
+    if handler == "upload":
+        result = upload_module.initiate_upload(body, db=real_db, current_user=owner)
+    else:
+        result = assets_module.initiate_new_version(asset.id, body, db=real_db, current_user=owner)
+
+    version = real_db.query(AssetVersion).filter(AssetVersion.id == result.version_id).one()
+    assert version.version_number == 4
+
+
 # -------------------------------------------------------------------- reaper
 
 def _seed_version(db, status, created_shift_hours, activity_shift_hours=None):

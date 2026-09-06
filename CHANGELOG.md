@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Uploading a replacement after deleting an older version no longer fails.** Version numbers remain monotonically increasing across soft-deleted versions, so the immutable uniqueness rule can never be asked to reuse an earlier number.
 - **Incomplete video encodes are no longer published as ready.** FreeFrame now validates every generated HLS rendition for a complete playlist and a duration compatible with the original source before publishing it. A truncated stream fails and retries instead of appearing as a short, apparently successful video. The transcoding worker now records the processing lifecycle at info level, and its source URL remains valid for the full worker timeout.
 - **Shared-folder assets now open with one touch on mobile.** Desktop keeps its existing click-to-select and double-click-to-open interaction.
 - **Mobile review now keeps the comment composer at the bottom and lets viewers drag the divider between the media and comments.**
