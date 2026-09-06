@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from packages.transcoder.ffmpeg_transcoder import FFmpegTranscoder
+from packages.transcoder.ffmpeg_transcoder import FFmpegTranscoder, validate_hls_output as _validate_hls_output
 from packages.transcoder.base import TranscodeJob
 
 
@@ -50,6 +50,17 @@ def _patch_popen():
         _popen_holder["mock"] = mock_popen
         yield mock_popen
         _popen_holder.pop("mock", None)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_hls_validation_for_command_tests():
+    """Command tests do not create ffmpeg's real playlist files.
+
+    Dedicated tests below exercise the validator against real temporary files;
+    this keeps the existing command-construction tests focused on their concern.
+    """
+    with patch("packages.transcoder.ffmpeg_transcoder.validate_hls_output"):
+        yield
 
 
 def _make_job(qualities: list[str] | None = None) -> TranscodeJob:
@@ -122,6 +133,40 @@ def test_run_uses_errors_replace():
         assert call_kwargs["text"] is True
         assert call_kwargs["errors"] == "replace"
         assert call_kwargs["timeout"] == 60
+
+
+# ─── HLS output validation ───────────────────────────────────────────────────
+
+def _write_playlist(path, durations, endlist=True):
+    path.parent.mkdir(parents=True)
+    lines = ["#EXTM3U", "#EXT-X-VERSION:6", "#EXT-X-PLAYLIST-TYPE:VOD"]
+    for index, duration in enumerate(durations):
+        lines.extend([f"#EXTINF:{duration:.6f},", f"seg_{index:03d}.ts"])
+    if endlist:
+        lines.append("#EXT-X-ENDLIST")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def test_validate_hls_output_accepts_complete_duration(tmp_path):
+    _write_playlist(tmp_path / "0" / "playlist.m3u8", [2.0, 2.0, 1.5])
+
+    durations = _validate_hls_output(tmp_path, expected_duration_seconds=5.5)
+
+    assert durations == {"0/playlist.m3u8": 5.5}
+
+
+def test_validate_hls_output_rejects_playlist_without_endlist(tmp_path):
+    _write_playlist(tmp_path / "0" / "playlist.m3u8", [2.0], endlist=False)
+
+    with pytest.raises(RuntimeError, match="missing ENDLIST"):
+        _validate_hls_output(tmp_path, expected_duration_seconds=2.0)
+
+
+def test_validate_hls_output_rejects_truncated_playlist(tmp_path):
+    _write_playlist(tmp_path / "0" / "playlist.m3u8", [2.0] * 10 + [0.233333])
+
+    with pytest.raises(RuntimeError, match="does not match source duration"):
+        _validate_hls_output(tmp_path, expected_duration_seconds=1340.533333)
 
 
 # ─── has_audio=True command construction ───────────────────────────────────────

@@ -299,6 +299,49 @@ def list_asset_versions(
     return result
 
 
+@router.delete("/assets/{asset_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asset_version(
+    asset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Soft-delete one terminal version while preserving a usable asset.
+
+    The final live version belongs to the asset itself: deleting it through this
+    endpoint would leave an asset that cannot be opened.  Editors should use the
+    existing asset deletion flow in that case.  In-flight versions are likewise
+    protected because a Celery task may otherwise finish after the delete.
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id, Asset.deleted_at.is_(None)).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    require_project_role(db, asset.project_id, current_user, ProjectRole.editor)
+
+    version = db.query(AssetVersion).filter(
+        AssetVersion.id == version_id,
+        AssetVersion.asset_id == asset_id,
+        AssetVersion.deleted_at.is_(None),
+    ).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    if version.processing_status in (ProcessingStatus.uploading, ProcessingStatus.processing):
+        raise HTTPException(status_code=409, detail="A version cannot be deleted while it is processing")
+
+    live_version_count = db.query(AssetVersion).filter(
+        AssetVersion.asset_id == asset_id,
+        AssetVersion.deleted_at.is_(None),
+    ).count()
+    if live_version_count <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="The last version cannot be deleted. Delete the asset instead.",
+        )
+
+    version.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+
+
 @router.get("/assets/{asset_id}/stream", response_model=StreamUrlResponse)
 def get_stream_url(
     asset_id: uuid.UUID,

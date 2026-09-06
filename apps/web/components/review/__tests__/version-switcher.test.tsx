@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { VersionSwitcher } from '../version-switcher'
 import { useReviewStore } from '@/stores/review-store'
 import type { AssetVersion } from '@/types'
@@ -55,5 +55,22 @@ describe('VersionSwitcher trigger status indicator (#118)', () => {
     render(<VersionSwitcher versions={[v1, v2]} />)
 
     expect(screen.queryByTestId('version-status-indicator')).toBeNull()
+  })
+
+  it('lets an editor request deletion of a terminal version', async () => {
+    const v1 = makeVersion({ version_number: 1, processing_status: 'ready' })
+    const v2 = makeVersion({ version_number: 2, processing_status: 'ready' })
+    const onDeleteVersion = vi.fn()
+    useReviewStore.getState().setCurrentVersion(v2)
+
+    render(<VersionSwitcher versions={[v1, v2]} canDelete onDeleteVersion={onDeleteVersion} />)
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /select version/i }), {
+      button: 0,
+      ctrlKey: false,
+    })
+    fireEvent.click(await screen.findByLabelText('Delete version 1'))
+
+    expect(onDeleteVersion).toHaveBeenCalledWith(v1)
   })
 })

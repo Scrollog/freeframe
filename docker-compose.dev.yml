@@ -97,6 +97,9 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    # Keep local transcodes representative of the 2-vCPU production VM.
+    # This cgroup limit applies to the Celery worker and the FFmpeg process it starts.
+    cpus: ${TRANSCODER_CPU_LIMIT:-2}
     env_file:
       - .env
     environment:

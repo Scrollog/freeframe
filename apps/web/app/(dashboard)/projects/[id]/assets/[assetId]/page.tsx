@@ -38,7 +38,9 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
-import type { Project, ProjectBranding, AssetResponse, ProjectMember, FolderTreeNode } from '@/types'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { useToast } from '@/components/shared/toast'
+import type { Project, ProjectBranding, AssetResponse, AssetVersion, ProjectMember, FolderTreeNode } from '@/types'
 
 const acceptByType: Record<string, string> = {
   video: 'video/*',
@@ -53,7 +55,9 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const searchParams = useSearchParams()
   const { asset, versions, isLoading, refetchComments, refetchVersions } = useReview()
   const { currentVersion, isDrawingMode, focusedCommentId, seekTo, setFocusedCommentId, setActiveAnnotation } = useReviewStore()
+  const setCurrentVersion = useReviewStore((s) => s.setCurrentVersion)
   const { user } = useAuthStore()
+  const toast = useToast()
   const startVersionUpload = useUploadStore((s) => s.startVersionUpload)
   const versionFileInputRef = useRef<HTMLInputElement>(null)
   const setExtraCrumbs = useBreadcrumbStore((s) => s.setExtraCrumbs)
@@ -66,6 +70,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const deepLinkApplied = useRef(false)
   const knownCommentIds = useRef<Set<string> | null>(null)
   const [newCommentIds, setNewCommentIds] = useState<string[]>([])
+  const [versionToDelete, setVersionToDelete] = useState<AssetVersion | null>(null)
 
   // Fetch folder tree to build the folder path for the breadcrumb
   const { data: folderTree } = useSWR<FolderTreeNode[]>(
@@ -125,6 +130,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const currentRole = currentMember?.role ?? 'viewer'
   const canComment = currentRole !== 'viewer'
   const canDeleteAnyComment = user?.is_superadmin || currentRole === 'owner'
+  const canManageVersions = user?.is_superadmin || currentRole === 'owner' || currentRole === 'editor'
 
   // Fetch all assets for navigation (1 of N)
   const { data: allAssets } = useSWR<AssetResponse[]>(
@@ -279,6 +285,22 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     const comment = await createComment(body, undefined, undefined, undefined, parentId)
     refetchComments()
     return comment
+  }
+
+  const deleteVersion = async () => {
+    if (!asset || !versionToDelete) return
+    const deletedVersion = versionToDelete
+    await api.delete(`/assets/${asset.id}/versions/${deletedVersion.id}`)
+
+    const fallback = [...versions]
+      .filter((version) => version.id !== deletedVersion.id)
+      .sort((a, b) => b.version_number - a.version_number)[0]
+    if (currentVersion?.id === deletedVersion.id && fallback) {
+      setCurrentVersion(fallback)
+    }
+
+    await Promise.all([refetchVersions(), refetchComments()])
+    toast.success(`Version v${deletedVersion.version_number} moved to trash`)
   }
 
   const versionReady = currentVersion?.processing_status === 'ready'
@@ -450,10 +472,19 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
             }}
           />
           <div className="hidden md:block">
-            <VersionSwitcher versions={versions} />
+            <VersionSwitcher
+              versions={versions}
+              canDelete={canManageVersions}
+              onDeleteVersion={setVersionToDelete}
+            />
           </div>
           <div className="md:hidden">
-            <VersionSwitcher versions={versions} compact />
+            <VersionSwitcher
+              versions={versions}
+              compact
+              canDelete={canManageVersions}
+              onDeleteVersion={setVersionToDelete}
+            />
           </div>
           {asset && canCompare(asset.asset_type, versions) && (
             <button
@@ -641,6 +672,15 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
         )}
       </div>
       )}
+      <ConfirmDialog
+        open={versionToDelete !== null}
+        onOpenChange={(open) => !open && setVersionToDelete(null)}
+        title={`Delete v${versionToDelete?.version_number ?? ''}?`}
+        description="This version will be moved to trash. Its comments and files are kept until the retention period ends."
+        confirmLabel="Delete version"
+        variant="danger"
+        onConfirm={deleteVersion}
+      />
     </div>
   )
 }

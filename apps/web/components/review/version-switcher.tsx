@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { AlertCircle, Loader2, CheckCircle2, ChevronDown, Layers } from 'lucide-react'
+import { AlertCircle, Loader2, CheckCircle2, ChevronDown, Layers, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useReviewStore } from '@/stores/review-store'
 import type { AssetVersion, AssetVersionStatus } from '@/types'
@@ -37,9 +37,17 @@ interface VersionSwitcherProps {
   versions: AssetVersion[]
   className?: string
   compact?: boolean
+  canDelete?: boolean
+  onDeleteVersion?: (version: AssetVersion) => void
 }
 
-export function VersionSwitcher({ versions, className, compact = false }: VersionSwitcherProps) {
+export function VersionSwitcher({
+  versions,
+  className,
+  compact = false,
+  canDelete = false,
+  onDeleteVersion,
+}: VersionSwitcherProps) {
   const currentVersion = useReviewStore((s) => s.currentVersion)
   const setCurrentVersion = useReviewStore((s) => s.setCurrentVersion)
 
@@ -100,27 +108,38 @@ export function VersionSwitcher({ versions, className, compact = false }: Versio
                   version.processing_status === 'uploading' ||
                   version.processing_status === 'processing'
                 return (
-                  <DropdownMenu.Item
-                    key={version.id}
-                    disabled={isDisabled}
-                    onSelect={() => setCurrentVersion(version)}
-                    className={cn(
-                      'flex items-center justify-between gap-3 mx-1 px-2.5 py-2 rounded-lg text-sm cursor-pointer outline-none transition-colors',
-                      isActive
-                        ? 'bg-accent/10 text-accent font-medium'
-                        : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-                      isDisabled && 'opacity-50 cursor-not-allowed',
-                    )}
-                  >
-                    <span>v{version.version_number}</span>
-                    <span
-                      className={cn('inline-flex items-center gap-1 text-[11px]', statusCfg.className)}
-                      title={statusCfg.label}
+                  <div key={version.id} className="flex items-center gap-0.5 mx-1">
+                    <DropdownMenu.Item
+                      disabled={isDisabled}
+                      onSelect={() => setCurrentVersion(version)}
+                      className={cn(
+                        'flex flex-1 items-center justify-between gap-3 px-2.5 py-2 rounded-lg text-sm cursor-pointer outline-none transition-colors',
+                        isActive
+                          ? 'bg-accent/10 text-accent font-medium'
+                          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                        isDisabled && 'opacity-50 cursor-not-allowed',
+                      )}
                     >
-                      {statusCfg.icon}
-                      {statusCfg.label}
-                    </span>
-                  </DropdownMenu.Item>
+                      <span>v{version.version_number}</span>
+                      <span
+                        className={cn('inline-flex items-center gap-1 text-[11px]', statusCfg.className)}
+                        title={statusCfg.label}
+                      >
+                        {statusCfg.icon}
+                        {statusCfg.label}
+                      </span>
+                    </DropdownMenu.Item>
+                    {canDelete && !isDisabled && (
+                      <DropdownMenu.Item
+                        aria-label={`Delete version ${version.version_number}`}
+                        title={`Delete v${version.version_number}`}
+                        onSelect={() => onDeleteVersion?.(version)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary outline-none transition-colors hover:bg-status-error/10 hover:text-status-error"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </DropdownMenu.Item>
+                    )}
+                  </div>
                 )
               })}
             </DropdownMenu.Content>

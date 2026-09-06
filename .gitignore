@@ -51,6 +51,7 @@ cover/
 /node_modules
 /node_modules/*
 node_modules/
+.pnpm-store/
 .turbo/
 
 # This repo uses pnpm (pnpm-lock.yaml) as the single lockfile. Ignore npm's

@@ -52,6 +52,8 @@ def process_asset(self, asset_id: str, version_id: str):
         version.processing_status = ProcessingStatus.processing
         db.commit()
 
+        log.info("Starting transcode for asset %s version %s", asset_id, version_id)
+
         output_prefix = f"processed/{asset.project_id}/{asset_id}/{version_id}"
         s3 = get_s3_client()
 
@@ -65,6 +67,7 @@ def process_asset(self, asset_id: str, version_id: str):
 
             version.processing_status = ProcessingStatus.ready
             db.commit()
+            log.info("Transcode completed for asset %s version %s", asset_id, version_id)
 
             # Publish SSE event (best-effort)
             _publish_event(str(asset.project_id), "transcode_complete", {
@@ -73,6 +76,7 @@ def process_asset(self, asset_id: str, version_id: str):
             })
 
         except Exception as exc:
+            log.exception("Transcode failed for asset %s version %s", asset_id, version_id)
             version.processing_status = ProcessingStatus.failed
             db.commit()
             _publish_event(str(asset.project_id), "transcode_failed", {

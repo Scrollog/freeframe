@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import shutil
@@ -26,6 +27,10 @@ _OUT_TIME_RE = re.compile(r"^out_time=(\d+):(\d\d):(\d\d(?:\.\d+)?)$")
 
 # Don't flood Redis/SSE: a 22-minute video emits progress twice a second.
 PROGRESS_MIN_INTERVAL_S = 3.0
+HLS_DURATION_ABSOLUTE_TOLERANCE_SECONDS = 5.0
+HLS_DURATION_RELATIVE_TOLERANCE = 0.02
+
+log = logging.getLogger("freeframe.transcoder")
 
 
 def parse_probe_metadata(data: dict) -> Optional[VideoMetadata]:
@@ -79,6 +84,61 @@ def resolve_x264_preset() -> str:
     """
     preset = (os.environ.get("TRANSCODER_PRESET") or "").strip().lower()
     return preset if preset in X264_PRESETS else DEFAULT_X264_PRESET
+
+
+def validate_hls_output(hls_dir: Path, expected_duration_seconds: float | None) -> dict[str, float]:
+    """Validate that every generated HLS rendition is complete and playable.
+
+    FFmpeg can exit successfully after an upstream HTTP stream ends early.  In
+    that case the HLS files look valid enough to upload, but the resulting VOD
+    silently ends after its first few segments.  Treating a materially shorter
+    playlist as a failed transcode keeps that partial output out of the viewer.
+    """
+    playlists = sorted(hls_dir.glob("*/playlist.m3u8"))
+    if not playlists:
+        raise RuntimeError("ffmpeg produced no HLS media playlists")
+
+    durations: dict[str, float] = {}
+    for playlist in playlists:
+        try:
+            lines = playlist.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise RuntimeError(f"could not read HLS playlist {playlist}") from exc
+
+        if "#EXT-X-ENDLIST" not in lines:
+            raise RuntimeError(f"HLS playlist {playlist.name} is incomplete (missing ENDLIST)")
+
+        duration = 0.0
+        segment_count = 0
+        for line in lines:
+            if not line.startswith("#EXTINF:"):
+                continue
+            value = line.removeprefix("#EXTINF:").split(",", 1)[0]
+            try:
+                segment_duration = float(value)
+            except ValueError as exc:
+                raise RuntimeError(f"HLS playlist {playlist.name} has an invalid segment duration") from exc
+            if segment_duration <= 0:
+                raise RuntimeError(f"HLS playlist {playlist.name} has a non-positive segment duration")
+            duration += segment_duration
+            segment_count += 1
+
+        if not segment_count:
+            raise RuntimeError(f"HLS playlist {playlist.name} contains no media segments")
+        durations[playlist.relative_to(hls_dir).as_posix()] = duration
+
+        if expected_duration_seconds and expected_duration_seconds > 0:
+            tolerance = max(
+                HLS_DURATION_ABSOLUTE_TOLERANCE_SECONDS,
+                expected_duration_seconds * HLS_DURATION_RELATIVE_TOLERANCE,
+            )
+            if abs(duration - expected_duration_seconds) > tolerance:
+                raise RuntimeError(
+                    f"HLS playlist {playlist.name} duration {duration:.3f}s does not match "
+                    f"source duration {expected_duration_seconds:.3f}s (tolerance {tolerance:.3f}s)"
+                )
+
+    return durations
 
 
 class FFmpegTranscoder(BaseTranscoder):
@@ -230,8 +290,10 @@ class FFmpegTranscoder(BaseTranscoder):
         """
         work_dir = Path(tempfile.mkdtemp(prefix=f"transcode_{job.version_id}_"))
         
-        # Generate presigned URL for streaming input (2 hour expiry for large files)
-        input_url = self._get_presigned_url(job.input_s3_key, expires_in=7200)
+        # A full multi-rendition encode may take several hours on a modest
+        # self-hosted CPU.  Keep the input URL valid longer than the four-hour
+        # ffmpeg timeout so a later HTTP range request cannot see an expired URL.
+        input_url = self._get_presigned_url(job.input_s3_key, expires_in=18000)
 
         try:
             # 1. Get video metadata via streaming (no download)
@@ -324,6 +386,17 @@ class FFmpegTranscoder(BaseTranscoder):
                 on_progress=progress_callback,
                 timeout=14400,
                 label="ffmpeg",
+            )
+
+            playlist_durations = validate_hls_output(
+                hls_dir,
+                (meta.duration_seconds if meta else None),
+            )
+            log.info(
+                "HLS output validated for version %s: source=%.3fs renditions=%s",
+                job.version_id,
+                (meta.duration_seconds if meta else 0.0),
+                playlist_durations,
             )
 
             # 4. Upload HLS files to S3

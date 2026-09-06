@@ -263,6 +263,7 @@ All environment variables are documented in [`.env.example`](../.env.example). K
 | `MAIL_PROVIDER` | `smtp` or `ses` | `smtp` |
 | `API_WORKERS` | Gunicorn worker processes | `4` |
 | `TRANSCODING_CONCURRENCY` | Parallel transcoding jobs | `2` |
+| `CELERY_LOG_LEVEL` | Transcoding worker log level | `info` |
 | `EMAIL_CONCURRENCY` | Parallel email jobs | `2` |
 | `MAINTENANCE_CONCURRENCY` | Parallel housekeeping jobs | `1` |
 | `NEXT_PUBLIC_UPLOAD_CONCURRENCY` | Upload parts in flight per file (browser) | `5` |

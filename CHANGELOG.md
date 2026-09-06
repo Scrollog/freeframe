@@ -13,12 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Editors can move individual asset versions to trash** from the version selector. The final remaining version and versions still uploading or processing are protected; use asset deletion for the former and wait for processing to finish for the latter.
 - **Share links now have a short public URL** (`/s/<code>`) backed by a random 96-bit code. The short URL preserves all existing share settings, including passwords, expiration, permissions and revocation.
 - **Share links can now use a custom public URL** (`/s/<name>`). Renaming a custom URL never breaks the original random URL, and retired names stay reserved so another link cannot impersonate it later.
 - **Administrators can configure the title and description used in public-share previews** from **Admin Dashboard → Instance settings**. Protected shares intentionally do not expose preview metadata.
 
 ### Fixed
 
+- **Incomplete video encodes are no longer published as ready.** FreeFrame now validates every generated HLS rendition for a complete playlist and a duration compatible with the original source before publishing it. A truncated stream fails and retries instead of appearing as a short, apparently successful video. The transcoding worker now records the processing lifecycle at info level, and its source URL remains valid for the full worker timeout.
 - **Shared-folder assets now open with one touch on mobile.** Desktop keeps its existing click-to-select and double-click-to-open interaction.
 - **Mobile review now keeps the comment composer at the bottom and lets viewers drag the divider between the media and comments.**
 
