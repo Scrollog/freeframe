@@ -81,6 +81,7 @@ def process_asset(self, asset_id: str, version_id: str):
             db.commit()
             _publish_event(str(asset.project_id), "transcode_failed", {
                 "asset_id": asset_id,
+                "version_id": version_id,
                 "error": str(exc),
             })
             raise self.retry(exc=exc)

@@ -33,10 +33,16 @@ export const versionStatusConfig: Record<
   },
 }
 
+export interface ProcessingProgress {
+  versionId: string
+  percent: number
+}
+
 interface VersionSwitcherProps {
   versions: AssetVersion[]
   className?: string
   compact?: boolean
+  processingProgress?: ProcessingProgress | null
   canDelete?: boolean
   onDeleteVersion?: (version: AssetVersion) => void
 }
@@ -45,6 +51,7 @@ export function VersionSwitcher({
   versions,
   className,
   compact = false,
+  processingProgress = null,
   canDelete = false,
   onDeleteVersion,
 }: VersionSwitcherProps) {
@@ -66,6 +73,10 @@ export function VersionSwitcher({
     latestStatus === 'uploading' || latestStatus === 'processing'
       ? versionStatusConfig[latestStatus]
       : null
+  const inFlightLabel =
+    latestStatus === 'processing' && processingProgress?.versionId === latest.id
+      ? `Processing ${Math.round(processingProgress.percent)}%`
+      : inFlightCfg?.label
 
   return (
     <div className={cn('flex items-center gap-1.5', className)}>
@@ -85,10 +96,10 @@ export function VersionSwitcher({
               <span
                 data-testid="version-status-indicator"
                 className="inline-flex items-center gap-1 text-[11px] text-white/90"
-                title={`v${latest.version_number} — ${inFlightCfg.label}`}
+                title={`v${latest.version_number} — ${inFlightLabel}`}
               >
                 {inFlightCfg.icon}
-                {inFlightCfg.label}
+                {inFlightLabel}
               </span>
             )}
             {sorted.length > 1 && <ChevronDown className="h-3 w-3 opacity-70" />}

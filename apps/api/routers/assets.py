@@ -93,11 +93,17 @@ def _build_asset_response(asset: Asset, db: Session) -> AssetResponse:
 
     resp = AssetResponse.model_validate(asset)
     resp.latest_version = version_response
-    resp.thumbnail_url = thumbnail_url
-    resp.comment_count = db.query(func.count(Comment.id)).filter(
-        Comment.asset_id == asset.id,
-        Comment.deleted_at.is_(None),
+    resp.version_count = db.query(func.count(AssetVersion.id)).filter(
+        AssetVersion.asset_id == asset.id,
+        AssetVersion.deleted_at.is_(None),
     ).scalar() or 0
+    resp.thumbnail_url = thumbnail_url
+    resp.comment_count = (
+        db.query(func.count(Comment.id)).filter(
+            Comment.version_id == latest_version.id,
+            Comment.deleted_at.is_(None),
+        ).scalar() or 0
+    ) if latest_version else 0
     return resp
 
 
@@ -141,10 +147,16 @@ def _build_asset_responses_bulk(assets: list[Asset], db: Session) -> list[AssetR
     for f in all_files:
         files_by_version.setdefault(f.version_id, []).append(f)
 
-    comment_counts = dict(
-        db.query(Comment.asset_id, func.count(Comment.id))
-        .filter(Comment.asset_id.in_(asset_ids), Comment.deleted_at.is_(None))
-        .group_by(Comment.asset_id)
+    comment_counts_by_version = dict(
+        db.query(Comment.version_id, func.count(Comment.id))
+        .filter(Comment.version_id.in_(version_ids), Comment.deleted_at.is_(None))
+        .group_by(Comment.version_id)
+        .all()
+    ) if version_ids else {}
+    version_counts = dict(
+        db.query(AssetVersion.asset_id, func.count(AssetVersion.id))
+        .filter(AssetVersion.asset_id.in_(asset_ids), AssetVersion.deleted_at.is_(None))
+        .group_by(AssetVersion.asset_id)
         .all()
     )
 
@@ -166,8 +178,9 @@ def _build_asset_responses_bulk(assets: list[Asset], db: Session) -> list[AssetR
 
         asset_resp = AssetResponse.model_validate(asset)
         asset_resp.latest_version = version_response
+        asset_resp.version_count = version_counts.get(asset.id, 0)
         asset_resp.thumbnail_url = thumbnail_url
-        asset_resp.comment_count = comment_counts.get(asset.id, 0)
+        asset_resp.comment_count = comment_counts_by_version.get(version.id, 0) if version else 0
         result.append(asset_resp)
     return result
 

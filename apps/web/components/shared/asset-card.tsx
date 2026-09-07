@@ -166,16 +166,6 @@ export function SharedAssetCard({
           </button>
         )}
 
-        {(asset.versionCount ?? 1) > 1 && (
-          <span className={cn(
-            'absolute top-2 z-10 inline-flex items-center gap-1 rounded-md bg-bg-primary/80 px-1.5 py-0.5 text-[10px] font-medium text-text-primary backdrop-blur-sm',
-            onToggleSelection ? 'left-9' : 'left-2',
-          )}>
-            <Layers className="h-3 w-3" />
-            {asset.versionCount}
-          </span>
-        )}
-
         {(asset.commentCount ?? 0) > 0 && (
           <span className="absolute bottom-2 left-2 z-10 inline-flex h-6 min-w-11 items-center justify-center gap-1 rounded-md bg-black/85 px-1.5 text-[10px] font-medium text-white">
             <MessageSquare className="h-3 w-3" />
@@ -189,18 +179,28 @@ export function SharedAssetCard({
           </span>
         )}
 
-        {onDownload && (
-          <button
-            type="button"
-            title="Download"
-            onClick={(event) => {
-              event.stopPropagation()
-              onDownload()
-            }}
-            className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md bg-black/85 text-white opacity-0 transition-opacity hover:bg-black group-hover:opacity-100"
-          >
-            <Download className="h-3 w-3" />
-          </button>
+        {((asset.versionCount ?? 1) > 1 || onDownload) && (
+          <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+            {onDownload && (
+              <button
+                type="button"
+                title="Download"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onDownload()
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded-md bg-black/85 text-white opacity-0 transition-opacity hover:bg-black group-hover:opacity-100"
+              >
+                <Download className="h-3 w-3" />
+              </button>
+            )}
+            {(asset.versionCount ?? 1) > 1 && (
+              <span className="inline-flex h-6 min-w-11 items-center justify-center gap-1 rounded-md bg-black/85 px-1.5 text-[10px] font-medium text-white">
+                <Layers className="h-3 w-3" />
+                {asset.versionCount}
+              </span>
+            )}
+          </div>
         )}
       </div>
 

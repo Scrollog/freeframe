@@ -21,6 +21,7 @@ from ..schemas.folder import (
     FolderUpdate,
 )
 from ..services.permissions import require_project_role, get_project_member, is_public_project
+from ..tasks.cleanup_tasks import PurgeCounts, _purge_asset, _purge_folder
 
 router = APIRouter(tags=["folders"])
 
@@ -528,3 +529,57 @@ def restore_folder(
 
     db.commit()
     return {"ok": True}
+
+
+# ─── Permanent trash deletion ─────────────────────────────────────────────────
+
+
+@router.delete("/assets/{asset_id}/permanently", response_model=dict)
+def permanently_delete_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Permanently remove a trashed asset and reclaim all of its storage.
+
+    The retention worker owns the cascade used here, so manual deletion and
+    automatic retention cleanup always remove the same database records and S3
+    objects. Only already-trashed assets qualify for this irreversible step.
+    """
+    asset = (
+        db.query(Asset)
+        .filter(Asset.id == asset_id, Asset.deleted_at.isnot(None))
+        .with_for_update()
+        .first()
+    )
+    if not asset:
+        raise HTTPException(status_code=404, detail="Deleted asset not found")
+
+    require_project_role(db, asset.project_id, current_user, ProjectRole.editor)
+    counts = PurgeCounts()
+    _purge_asset(db, asset.id, counts)
+    db.commit()
+    return {"ok": True, "reclaimed": {"assets": counts.assets, "media_files": counts.media_files}}
+
+
+@router.delete("/folders/{folder_id}/permanently", response_model=dict)
+def permanently_delete_folder(
+    folder_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Permanently remove a trashed folder, including its remaining subtree."""
+    folder = (
+        db.query(Folder)
+        .filter(Folder.id == folder_id, Folder.deleted_at.isnot(None))
+        .with_for_update()
+        .first()
+    )
+    if not folder:
+        raise HTTPException(status_code=404, detail="Deleted folder not found")
+
+    require_project_role(db, folder.project_id, current_user, ProjectRole.editor)
+    counts = PurgeCounts()
+    _purge_folder(db, folder.id, counts)
+    db.commit()
+    return {"ok": True, "reclaimed": {"folders": counts.folders, "assets": counts.assets, "media_files": counts.media_files}}

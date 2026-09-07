@@ -63,6 +63,16 @@ export function useFolders(projectId: string) {
     await mutateTree()
   }
 
+  async function permanentlyDeleteAsset(assetId: string): Promise<void> {
+    await api.delete(`/assets/${assetId}/permanently`)
+    await mutateTree()
+  }
+
+  async function permanentlyDeleteFolder(folderId: string): Promise<void> {
+    await api.delete(`/folders/${folderId}/permanently`)
+    await mutateTree()
+  }
+
   return {
     tree: tree ?? [],
     mutateTree,
@@ -74,6 +84,8 @@ export function useFolders(projectId: string) {
     bulkMove,
     restoreAsset,
     restoreFolder,
+    permanentlyDeleteAsset,
+    permanentlyDeleteFolder,
   }
 }
 

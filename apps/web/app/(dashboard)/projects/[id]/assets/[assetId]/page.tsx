@@ -12,7 +12,7 @@ import { AnnotationOverlay } from '@/components/review/annotation-overlay'
 import { CommentPanel } from '@/components/review/comment-panel'
 import { CommentInput } from '@/components/review/comment-input'
 // ApprovalBar removed for now
-import { VersionSwitcher } from '@/components/review/version-switcher'
+import { VersionSwitcher, type ProcessingProgress } from '@/components/review/version-switcher'
 import { ShareDialog } from '@/components/review/share-dialog'
 import { CompareOverlay } from '@/components/review/compare/compare-overlay'
 import { useReviewStore } from '@/stores/review-store'
@@ -71,6 +71,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   const knownCommentIds = useRef<Set<string> | null>(null)
   const [newCommentIds, setNewCommentIds] = useState<string[]>([])
   const [versionToDelete, setVersionToDelete] = useState<AssetVersion | null>(null)
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null)
 
   // Fetch folder tree to build the folder path for the breadcrumb
   const { data: folderTree } = useSWR<FolderTreeNode[]>(
@@ -184,13 +185,36 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
   // appears/updates in the switcher without a hard refresh (#118). The review
   // provider's versions are plain state, not SWR, so nothing else refetches them.
   const refetchIfThisAsset = (eventAssetId: string) => {
-    if (eventAssetId === asset?.id) refetchVersions()
+    if (eventAssetId === asset?.id) void refetchVersions()
   }
+  const latestVersion = versions.reduce<AssetVersion | null>(
+    (newest, version) => !newest || version.version_number > newest.version_number ? version : newest,
+    null,
+  )
   useSSE(asset?.project_id, {
-    onTranscodeProgress: (d) => refetchIfThisAsset(d.asset_id),
-    onTranscodeComplete: (d) => refetchIfThisAsset(d.asset_id),
-    onTranscodeFailed: (d) => refetchIfThisAsset(d.asset_id),
+    onTranscodeProgress: (d) => {
+      if (
+        d.asset_id !== asset?.id ||
+        d.version_id !== latestVersion?.id ||
+        latestVersion.processing_status !== 'processing'
+      ) return
+      setProcessingProgress({ versionId: d.version_id, percent: d.percent })
+    },
+    onTranscodeComplete: (d) => {
+      if (d.asset_id !== asset?.id) return
+      setProcessingProgress((current) => current?.versionId === d.version_id ? null : current)
+      refetchIfThisAsset(d.asset_id)
+    },
+    onTranscodeFailed: (d) => {
+      if (d.asset_id !== asset?.id) return
+      setProcessingProgress((current) => current?.versionId === d.version_id ? null : current)
+      refetchIfThisAsset(d.asset_id)
+    },
   })
+
+  useEffect(() => {
+    setProcessingProgress(null)
+  }, [asset?.id])
 
   // Deep-link to a specific comment from notification (?commentId=...)
   // Runs once after comments are loaded — seeks to timecode, focuses comment, shows annotation
@@ -474,6 +498,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
           <div className="hidden md:block">
             <VersionSwitcher
               versions={versions}
+              processingProgress={processingProgress}
               canDelete={canManageVersions}
               onDeleteVersion={setVersionToDelete}
             />
@@ -482,6 +507,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
             <VersionSwitcher
               versions={versions}
               compact
+              processingProgress={processingProgress}
               canDelete={canManageVersions}
               onDeleteVersion={setVersionToDelete}
             />

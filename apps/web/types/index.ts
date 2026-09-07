@@ -144,6 +144,7 @@ export interface AssetVersion {
 /** Backend returns AssetResponse with latest_version embedded */
 export interface AssetResponse extends Asset {
   latest_version: AssetVersion | null;
+  version_count: number;
   thumbnail_url: string | null;
   comment_count?: number;
 }

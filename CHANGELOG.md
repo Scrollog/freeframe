@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two-step trash deletion.** Items in Recently Deleted can now be permanently deleted with an explicit confirmation, reclaiming their stored media, generated files, comments, and attachments immediately.
+
 - **Editors can move individual asset versions to trash** from the version selector. The final remaining version and versions still uploading or processing are protected; use asset deletion for the former and wait for processing to finish for the latter.
 - **Share links now have a short public URL** (`/s/<code>`) backed by a random 96-bit code. The short URL preserves all existing share settings, including passwords, expiration, permissions and revocation.
 - **Share links can now use a custom public URL** (`/s/<name>`). Renaming a custom URL never breaks the original random URL, and retired names stay reserved so another link cannot impersonate it later.
@@ -20,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Asset-card badges now follow the visible version.** The version badge uses the same dark treatment as duration and comments, sits at the right edge, and comment totals include only the version displayed by the card.
+- **The review header now shows live transcoding progress.** A processing version displays its current percentage instead of only a generic processing state.
+- **Asset cards now display the actual number of available versions.** Removed versions no longer inflate the counter merely because later version numbers remain immutable.
 - **Uploading a replacement after deleting an older version no longer fails.** Version numbers remain monotonically increasing across soft-deleted versions, so the immutable uniqueness rule can never be asked to reuse an earlier number.
 - **Incomplete video encodes are no longer published as ready.** FreeFrame now validates every generated HLS rendition for a complete playlist and a duration compatible with the original source before publishing it. A truncated stream fails and retries instead of appearing as a short, apparently successful video. The transcoding worker now records the processing lifecycle at info level, and its source URL remains valid for the full worker timeout.
 - **Shared-folder assets now open with one touch on mobile.** Desktop keeps its existing click-to-select and double-click-to-open interaction.

@@ -119,6 +119,43 @@ def test_the_bulk_listing_agrees_with_the_single_lookup(real_db):
         assert _display_version(real_db, asset.id).id == expected.id
 
 
+def test_bulk_listing_counts_live_versions_not_version_numbers(real_db):
+    """A removed v2 must not make live v3 display as three available versions."""
+    from apps.api.routers.assets import _build_asset_responses_bulk
+
+    _, _, asset, versions = _seed(
+        real_db, [ProcessingStatus.ready, ProcessingStatus.ready, ProcessingStatus.ready]
+    )
+    versions[1].deleted_at = datetime.now(timezone.utc)
+    real_db.flush()
+
+    response = _build_asset_responses_bulk([asset], real_db)[0]
+
+    assert response.version_count == 2
+
+
+def test_asset_response_counts_only_comments_on_the_displayed_version(real_db):
+    from apps.api.models.comment import Comment
+    from apps.api.routers.assets import _build_asset_response, _build_asset_responses_bulk
+
+    _, _, asset, versions = _seed(real_db, [ProcessingStatus.ready, ProcessingStatus.ready])
+    real_db.add_all([
+        Comment(asset_id=asset.id, version_id=versions[0].id, body="v1"),
+        Comment(asset_id=asset.id, version_id=versions[0].id, body="v1 again"),
+        Comment(asset_id=asset.id, version_id=versions[1].id, body="v2"),
+        Comment(
+            asset_id=asset.id,
+            version_id=versions[1].id,
+            body="removed",
+            deleted_at=datetime.now(timezone.utc),
+        ),
+    ])
+    real_db.flush()
+
+    assert _build_asset_response(asset, real_db).comment_count == 1
+    assert _build_asset_responses_bulk([asset], real_db)[0].comment_count == 1
+
+
 # ------------------------------------------------------------------ ghost assets
 
 def test_the_reaper_removes_an_asset_it_has_stripped_of_every_version(real_db, monkeypatch):

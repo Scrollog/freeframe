@@ -47,6 +47,26 @@ describe('VersionSwitcher trigger status indicator (#118)', () => {
     expect(screen.getByTestId('version-status-indicator')).toHaveTextContent(/uploading/i)
   })
 
+  it('shows transcode progress on the trigger for the newest processing version', () => {
+    const v1 = makeVersion({ version_number: 1, processing_status: 'ready' })
+    const v2 = makeVersion({ version_number: 2, processing_status: 'processing' })
+    useReviewStore.getState().setCurrentVersion(v1)
+
+    render(<VersionSwitcher versions={[v1, v2]} processingProgress={{ versionId: v2.id, percent: 42.4 }} />)
+
+    expect(screen.getByTestId('version-status-indicator')).toHaveTextContent('Processing 42%')
+  })
+
+  it('ignores progress that belongs to an older version', () => {
+    const v1 = makeVersion({ version_number: 1, processing_status: 'processing' })
+    const v2 = makeVersion({ version_number: 2, processing_status: 'processing' })
+    useReviewStore.getState().setCurrentVersion(v1)
+
+    render(<VersionSwitcher versions={[v1, v2]} processingProgress={{ versionId: v1.id, percent: 42.4 }} />)
+
+    expect(screen.getByTestId('version-status-indicator')).toHaveTextContent(/^Processing$/)
+  })
+
   it('shows no processing indicator when every version is ready', () => {
     const v1 = makeVersion({ version_number: 1, processing_status: 'ready' })
     const v2 = makeVersion({ version_number: 2, processing_status: 'ready' })

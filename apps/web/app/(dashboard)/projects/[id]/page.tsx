@@ -115,6 +115,11 @@ export default function ProjectDetailPage() {
   } | null>(null);
   const [assetToRename, setAssetToRename] = React.useState<AssetResponse | null>(null);
   const [assetToDelete, setAssetToDelete] = React.useState<AssetResponse | null>(null);
+  const [trashItemToDelete, setTrashItemToDelete] = React.useState<{
+    id: string;
+    name: string;
+    type: "asset" | "folder";
+  } | null>(null);
 
   const { files: uploadFiles, startUpload } = useUploadStore();
   const { user } = useAuthStore();
@@ -130,6 +135,8 @@ export default function ProjectDetailPage() {
     bulkMove,
     restoreAsset,
     restoreFolder,
+    permanentlyDeleteAsset,
+    permanentlyDeleteFolder,
   } = useFolders(projectId);
 
   const { trash, mutateTrash } = useTrash(projectId);
@@ -223,7 +230,7 @@ export default function ProjectDetailPage() {
     if (!assets) return {};
     const map: Record<string, number> = {};
     for (const a of assets) {
-      if (a.latest_version) map[a.id] = a.latest_version.version_number;
+      map[a.id] = a.version_count;
     }
     return map;
   }, [assets]);
@@ -733,17 +740,25 @@ export default function ProjectDetailPage() {
                           Folder
                         </span>
                       </div>
-                      <button
-                        className="text-xs text-accent hover:underline shrink-0"
-                        onClick={async () => {
-                          await restoreFolder(item.id);
-                          mutateTrash();
-                          mutateAssets();
-                          mutateSubfolders();
-                        }}
-                      >
-                        Restore
-                      </button>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <button
+                          className="text-xs text-accent hover:underline"
+                          onClick={async () => {
+                            await restoreFolder(item.id);
+                            mutateTrash();
+                            mutateAssets();
+                            mutateSubfolders();
+                          }}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          className="text-xs text-status-error hover:underline"
+                          onClick={() => setTrashItemToDelete({ id: item.id, name: item.name, type: "folder" })}
+                        >
+                          Delete permanently
+                        </button>
+                      </div>
                     </div>
                   ))}
                   {trash.assets.map((item) => (
@@ -759,17 +774,25 @@ export default function ProjectDetailPage() {
                           {item.type}
                         </span>
                       </div>
-                      <button
-                        className="text-xs text-accent hover:underline shrink-0"
-                        onClick={async () => {
-                          await restoreAsset(item.id);
-                          mutateTrash();
-                          mutateAssets();
-                          mutateSubfolders();
-                        }}
-                      >
-                        Restore
-                      </button>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <button
+                          className="text-xs text-accent hover:underline"
+                          onClick={async () => {
+                            await restoreAsset(item.id);
+                            mutateTrash();
+                            mutateAssets();
+                            mutateSubfolders();
+                          }}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          className="text-xs text-status-error hover:underline"
+                          onClick={() => setTrashItemToDelete({ id: item.id, name: item.name, type: "asset" })}
+                        >
+                          Delete permanently
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1348,6 +1371,27 @@ export default function ProjectDetailPage() {
             if (selectedAsset?.id === assetToDelete.id) setSelectedAsset(null);
           } catch {}
           setAssetToDelete(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={trashItemToDelete !== null}
+        onOpenChange={(open) => { if (!open) setTrashItemToDelete(null); }}
+        title={`Permanently delete "${trashItemToDelete?.name ?? ""}"?`}
+        description={trashItemToDelete?.type === "folder"
+          ? "This permanently deletes this folder, its subfolders, and all files inside them. This cannot be undone."
+          : "This permanently deletes this file, every version, comments, attachments, and generated media. This cannot be undone."}
+        confirmLabel="Delete permanently"
+        variant="danger"
+        onConfirm={async () => {
+          if (!trashItemToDelete) return;
+          if (trashItemToDelete.type === "folder") {
+            await permanentlyDeleteFolder(trashItemToDelete.id);
+          } else {
+            await permanentlyDeleteAsset(trashItemToDelete.id);
+          }
+          setTrashItemToDelete(null);
+          await Promise.all([mutateTrash(), mutateAssets(), mutateSubfolders()]);
         }}
       />
     </div>

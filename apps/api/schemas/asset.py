@@ -48,6 +48,7 @@ class AssetResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     latest_version: Optional[AssetVersionResponse] = None
+    version_count: int = 0
     thumbnail_url: Optional[str] = None
     comment_count: int = 0
     model_config = {"from_attributes": True}
