@@ -285,6 +285,37 @@ def test_refresh_token_rejected_after_password_change(client, mock_db):
     assert response.status_code == 401
     assert response.json()["detail"] == "Session expired, please log in again"
 
+
+def test_refresh_token_is_rate_limited(client, mock_db, monkeypatch):
+    """Refresh is a bearer-token endpoint and needs its own abuse budget."""
+    import apps.api.middleware.rate_limit as rate_limit_module
+
+    calls = []
+
+    def reject_after_first(ip, action, max_requests, window_seconds):
+        calls.append((ip, action, max_requests, window_seconds))
+        return False, 17
+
+    monkeypatch.setattr(rate_limit_module, "check_rate_limit", reject_after_first)
+
+    response = client.post("/auth/refresh", json={"refresh_token": "invalid"})
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "17"
+    assert calls == [("testclient", "refresh_token", 30, 60)]
+
+
+def test_preferences_reject_unknown_or_unbounded_values(client, auth_headers):
+    unknown = client.patch("/auth/me/preferences", headers=auth_headers, json={"arbitrary": "value"})
+    oversized = client.patch(
+        "/auth/me/preferences",
+        headers=auth_headers,
+        json={"notifications": {"mentions": "x" * 65}},
+    )
+
+    assert unknown.status_code == 422
+    assert oversized.status_code == 422
+
 def test_refresh_token_legacy_token_accepted(client, mock_db):
     """Test that a token without a 'ver' claim is treated as version 1 and accepted."""
     from apps.api.config import settings

@@ -1,5 +1,6 @@
 """Tests for share link password session management."""
 import pytest
+from fastapi import HTTPException
 from unittest.mock import MagicMock, patch
 
 
@@ -136,3 +137,30 @@ class TestValidateShareLinkWithSession:
                 MagicMock(), "token123", share_session="bad-session"
             )
         assert exc_info.value.status_code == 403
+
+    @patch("apps.api.services.permissions.validate_share_link")
+    def test_secure_link_requires_an_authenticated_user(self, mock_validate):
+        mock_link = MagicMock()
+        mock_link.visibility = "secure"
+        mock_link.password_hash = None
+        mock_validate.return_value = mock_link
+
+        from apps.api.services.permissions import validate_share_link_with_session
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_share_link_with_session(MagicMock(), "token123")
+
+        assert exc_info.value.status_code == 403
+
+    @patch("apps.api.services.permissions.validate_share_link")
+    def test_secure_link_allows_an_authenticated_user(self, mock_validate):
+        mock_link = MagicMock()
+        mock_link.visibility = "secure"
+        mock_link.password_hash = None
+        mock_validate.return_value = mock_link
+
+        from apps.api.services.permissions import validate_share_link_with_session
+
+        assert validate_share_link_with_session(
+            MagicMock(), "token123", current_user=MagicMock()
+        ) is mock_link

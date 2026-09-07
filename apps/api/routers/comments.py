@@ -39,6 +39,7 @@ from ..schemas.comment import (
 )
 from ..services import s3_service
 from ..services import comment_export
+from ..services import event_service
 from ..services.permissions import (
     require_asset_access, can_access_asset, validate_share_link_with_session, validate_asset_in_share,
 )
@@ -393,6 +394,11 @@ def create_comment(
 
     db.commit()
     db.refresh(comment)
+    event_service.publish_sync(asset.project_id, "new_comment", {
+        "asset_id": str(asset_id),
+        "comment_id": str(comment.id),
+        "author": current_user.name,
+    })
     return _build_comment_response(comment, db, current_user_id=current_user.id)
 
 
@@ -435,6 +441,11 @@ def reply_to_comment(
 
     db.commit()
     db.refresh(reply)
+    event_service.publish_sync(asset.project_id, "new_comment", {
+        "asset_id": str(asset_id),
+        "comment_id": str(reply.id),
+        "author": current_user.name,
+    })
     return _build_comment_response(reply, db, current_user_id=current_user.id)
 
 
@@ -504,6 +515,11 @@ def resolve_comment(
     comment.resolved = not comment.resolved
     db.commit()
     db.refresh(comment)
+    event_service.publish_sync(asset.project_id, "comment_resolved", {
+        "asset_id": str(asset.id),
+        "comment_id": str(comment.id),
+        "resolved": comment.resolved,
+    })
     return _build_comment_response(comment, db, current_user_id=current_user.id)
 
 
@@ -970,6 +986,12 @@ def guest_comment(
     )
     db.add(activity)
     db.commit()
+
+    event_service.publish_sync(asset.project_id, "new_comment", {
+        "asset_id": str(asset.id),
+        "comment_id": str(comment.id),
+        "author": actor_name,
+    })
 
     response = _build_comment_response(comment, db)
     if guest_edit_token:

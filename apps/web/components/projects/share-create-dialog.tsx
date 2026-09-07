@@ -281,7 +281,7 @@ interface ConfigurePhaseProps {
 
 function ConfigurePhase({ defaultTitle, onBack, onCreate, creating }: ConfigurePhaseProps) {
   const [title, setTitle] = React.useState(defaultTitle)
-  const [allowComments, setAllowComments] = React.useState(false)
+  const [allowComments, setAllowComments] = React.useState(true)
   const [allowDownloads, setAllowDownloads] = React.useState(false)
   const [passphrase, setPassphrase] = React.useState(false)
   const [passphraseValue, setPassphraseValue] = React.useState('')

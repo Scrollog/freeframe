@@ -388,6 +388,105 @@ function mapProcessingStatus(status: string): UploadStatus {
   }
 }
 
+type LandedUploadStatus = 'processing' | 'complete'
+type UpdateUploadFile = (fileId: string, patch: Partial<UploadFile>) => void
+
+/**
+ * Ask the server whether a completion request landed despite its response failing.
+ *
+ * A browser-side network error only proves that the response was unavailable. It
+ * does not prove that the API did not assemble the object, claim the version, and
+ * dispatch processing. The asset response deliberately hides uploading/failed
+ * versions from `latest_version`, so the version id is required to avoid treating
+ * an older ready version as success for a new upload.
+ */
+async function completedVersionStatus(
+  assetId: string,
+  versionId: string,
+): Promise<LandedUploadStatus | null> {
+  const asset = await api.get<AssetResponse>(`/assets/${assetId}`).catch(() => null)
+  if (!asset?.latest_version || asset.latest_version.id !== versionId) return null
+
+  const status = mapProcessingStatus(asset.latest_version.processing_status)
+  return status === 'processing' || status === 'complete' ? status : null
+}
+
+interface UploadFailureContext {
+  error: unknown
+  fileId: string
+  updateFile: UpdateUploadFile
+  isCancelled: () => boolean
+  completionAttempted: boolean
+  assetId?: string
+  versionId?: string
+  uploadId?: string
+  s3Key?: string
+}
+
+/**
+ * Resolve a browser-observed upload failure without discarding a completion that
+ * already succeeded on the server. Shared by new-asset and new-version uploads
+ * so their recovery semantics cannot drift apart.
+ */
+async function handleUploadFailure({
+  error,
+  fileId,
+  updateFile,
+  isCancelled,
+  completionAttempted,
+  assetId,
+  versionId,
+  uploadId,
+  s3Key,
+}: UploadFailureContext): Promise<void> {
+  const applyLanded = (landed: LandedUploadStatus) => {
+    // A cancellation made while the recovery read was in flight wins over a
+    // late response. It must not be visually overwritten by processing.
+    if (isCancelled()) return false
+    updateFile(fileId, {
+      progress: 100,
+      status: landed,
+      processingProgress: landed === 'complete' ? 100 : 0,
+    })
+    return true
+  }
+
+  const cancelled = isAbortError(error)
+  if (cancelled) {
+    updateFile(fileId, { status: 'cancelled', progress: 0 })
+  } else {
+    const landed = completionAttempted && assetId && versionId
+      ? await completedVersionStatus(assetId, versionId)
+      : null
+    if (landed && applyLanded(landed)) return
+
+    if (!isCancelled()) {
+      const message = error instanceof Error ? error.message : 'Upload failed'
+      updateFile(fileId, { status: 'failed', error: message })
+    }
+  }
+
+  // Preserve the existing cleanup behaviour for a genuinely failed or cancelled
+  // upload. A completion that is confirmed as landed returned above and never
+  // reaches this abort path.
+  if (!uploadId || !s3Key || !versionId) return
+
+  const aborting = api.post('/upload/abort', {
+    s3_key: s3Key,
+    upload_id: uploadId,
+    version_id: versionId,
+  }).catch(() => {})
+
+  // The abort endpoint can discover an assembled object whose completion did
+  // not commit its state, promote it to processing, and dispatch work. Re-read
+  // afterwards so the UI converges on that authoritative outcome.
+  if (!cancelled && completionAttempted && assetId) {
+    await aborting
+    const landed = await completedVersionStatus(assetId, versionId)
+    if (landed) applyLanded(landed)
+  }
+}
+
 function mimeFromAssetType(assetType: string): string {
   switch (assetType) {
     case 'video': return 'video/mp4'
@@ -468,6 +567,8 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
       let upload_id: string | undefined
       let s3_key: string | undefined
       let version_id: string | undefined
+      let asset_id: string | undefined
+      let completionAttempted = false
 
       retainWakeLock()
       try {
@@ -487,7 +588,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
         upload_id = initRes.upload_id
         s3_key = initRes.s3_key
         version_id = initRes.version_id
-        const asset_id = initRes.asset_id
+        asset_id = initRes.asset_id
 
         updateFile(id, { uploadId: upload_id, assetId: asset_id, versionId: version_id })
 
@@ -495,6 +596,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
           updateFile(id, { progress: percent }),
         )
 
+        completionAttempted = true
         await api.post('/upload/complete', {
           s3_key,
           upload_id,
@@ -512,17 +614,17 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
           updateFile(id, { progress: 100, status: 'complete' })
         }
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          updateFile(id, { status: 'cancelled', progress: 0 })
-        } else {
-          const message = err instanceof Error ? err.message : 'Upload failed'
-          updateFile(id, { status: 'failed', error: message })
-        }
-        // Notify backend so the version is marked failed (not stuck at uploading).
-        // This ensures post-refresh history shows the item in "Failed", not "Active".
-        if (upload_id && s3_key && version_id) {
-          api.post('/upload/abort', { s3_key, upload_id, version_id }).catch(() => {})
-        }
+        await handleUploadFailure({
+          error: err,
+          fileId: id,
+          updateFile,
+          isCancelled: () => get().files.find((f) => f.id === id)?.status === 'cancelled',
+          completionAttempted,
+          assetId: asset_id,
+          versionId: version_id,
+          uploadId: upload_id,
+          s3Key: s3_key,
+        })
       } finally {
         releaseWakeLock()
         delete abortControllers[id]
@@ -559,6 +661,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
       let upload_id: string | undefined
       let s3_key: string | undefined
       let version_id: string | undefined
+      let completionAttempted = false
       retainWakeLock()
       try {
         updateFile(id, { status: 'uploading' })
@@ -581,18 +684,22 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
           updateFile(id, { progress: percent }),
         )
 
+        completionAttempted = true
         await api.post('/upload/complete', { s3_key, upload_id, asset_id: assetId, version_id, parts })
         const isMedia = file.type.startsWith('video/') || file.type.startsWith('audio/') || file.type.startsWith('image/')
         updateFile(id, { progress: 100, status: isMedia ? 'processing' : 'complete', processingProgress: 0 })
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          updateFile(id, { status: 'cancelled', progress: 0 })
-        } else {
-          updateFile(id, { status: 'failed', error: err instanceof Error ? err.message : 'Upload failed' })
-        }
-        if (upload_id && s3_key && version_id) {
-          api.post('/upload/abort', { s3_key, upload_id, version_id }).catch(() => {})
-        }
+        await handleUploadFailure({
+          error: err,
+          fileId: id,
+          updateFile,
+          isCancelled: () => get().files.find((f) => f.id === id)?.status === 'cancelled',
+          completionAttempted,
+          assetId,
+          versionId: version_id,
+          uploadId: upload_id,
+          s3Key: s3_key,
+        })
       } finally {
         releaseWakeLock()
         delete abortControllers[id]

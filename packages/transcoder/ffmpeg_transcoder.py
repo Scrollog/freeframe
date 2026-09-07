@@ -73,6 +73,8 @@ X264_PRESETS = (
     "fast", "faster", "veryfast", "superfast", "ultrafast",
 )
 DEFAULT_X264_PRESET = "veryfast"
+_URL_RE = re.compile(r"https?://\S+")
+_DIAGNOSTIC_TAIL_MAX_CHARS = 2_000
 
 
 def resolve_x264_preset() -> str:
@@ -84,6 +86,13 @@ def resolve_x264_preset() -> str:
     """
     preset = (os.environ.get("TRANSCODER_PRESET") or "").strip().lower()
     return preset if preset in X264_PRESETS else DEFAULT_X264_PRESET
+
+
+def _safe_diagnostic_tail(lines: deque[str]) -> str:
+    """Return bounded FFmpeg context without leaking presigned input URLs."""
+    tail = "\n".join(lines).strip()
+    tail = _URL_RE.sub("<redacted-url>", tail)
+    return tail[-_DIAGNOSTIC_TAIL_MAX_CHARS:]
 
 
 def validate_hls_output(hls_dir: Path, expected_duration_seconds: float | None) -> dict[str, float]:
@@ -179,7 +188,7 @@ class FFmpegTranscoder(BaseTranscoder):
         on_progress: Optional[ProgressCallback],
         timeout: int | None = None,
         label: str = "ffmpeg",
-    ) -> None:
+    ) -> str:
         """Run ffmpeg, reporting completion percentage as it encodes.
 
         Deliberately separate from `_run` instead of replacing it: `_run` also
@@ -237,11 +246,12 @@ class FFmpegTranscoder(BaseTranscoder):
                 proc.stdout.close()
 
         returncode = proc.wait()
+        output = _safe_diagnostic_tail(tail)
         if returncode != 0:
-            output = "\n".join(tail).strip()
             raise RuntimeError(
                 f"{label} exited {returncode}: {output or 'no output captured'}"
             )
+        return output
 
     async def get_video_metadata(self, s3_key: str) -> VideoMetadata:
         """Get video metadata using streaming (no full download)."""
@@ -303,6 +313,16 @@ class FFmpegTranscoder(BaseTranscoder):
             ]
             vid_info = self._run(cmd, timeout=120, label="ffprobe")
             meta = parse_probe_metadata(json.loads(vid_info))
+            if meta is None:
+                # Browsers commonly report audio-only MP4/MPEG containers as
+                # video/*.  Do not build an empty HLS ladder and let FFmpeg
+                # fail on a missing [v:0] stream; the task will re-route this
+                # valid input to the audio pipeline.
+                return TranscodeResult(
+                    success=False,
+                    no_video_stream=True,
+                    error=f"No video stream in {job.input_s3_key}",
+                )
 
             # 2. Check if input has an audio stream
             audio_cmd = [
@@ -378,24 +398,26 @@ class FFmpegTranscoder(BaseTranscoder):
                 (hls_dir / q).mkdir(exist_ok=True)
 
             # Timeout scales with expected duration - 4 hours for very large files
-            # meta is None when ffprobe found no video stream; duration 0 disables
-            # the percentage (the encode still runs, just without progress).
-            self._run_with_progress(
+            ffmpeg_tail = self._run_with_progress(
                 ffmpeg_cmd,
-                duration_seconds=(meta.duration_seconds if meta else 0.0),
+                duration_seconds=meta.duration_seconds,
                 on_progress=progress_callback,
                 timeout=14400,
                 label="ffmpeg",
             )
 
-            playlist_durations = validate_hls_output(
-                hls_dir,
-                (meta.duration_seconds if meta else None),
-            )
+            try:
+                playlist_durations = validate_hls_output(
+                    hls_dir,
+                    meta.duration_seconds,
+                )
+            except RuntimeError as exc:
+                diagnostic = f"; ffmpeg tail: {ffmpeg_tail}" if ffmpeg_tail else ""
+                raise RuntimeError(f"{exc}{diagnostic}") from exc
             log.info(
                 "HLS output validated for version %s: source=%.3fs renditions=%s",
                 job.version_id,
-                (meta.duration_seconds if meta else 0.0),
+                meta.duration_seconds,
                 playlist_durations,
             )
 
@@ -431,10 +453,10 @@ class FFmpegTranscoder(BaseTranscoder):
                 success=True,
                 hls_prefix=job.output_s3_prefix,
                 thumbnail_keys=[thumbnail_key],
-                duration_seconds=(meta.duration_seconds or None) if meta else None,
-                width=(meta.width or None) if meta else None,
-                height=(meta.height or None) if meta else None,
-                fps=(meta.fps or None) if meta else None,
+                duration_seconds=meta.duration_seconds or None,
+                width=meta.width or None,
+                height=meta.height or None,
+                fps=meta.fps or None,
             )
 
         except Exception as e:

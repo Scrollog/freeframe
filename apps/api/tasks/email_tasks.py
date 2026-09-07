@@ -21,7 +21,9 @@ jinja_env = Environment(
 
 def render_template(template_name: str, **context) -> str:
     """Render an email template with context."""
+    from ..services.branding_service import resolve_org_name
     context.setdefault("year", datetime.now().year)
+    context.setdefault("org_name", resolve_org_name())
     template = jinja_env.get_template(template_name)
     return template.render(**context)
 
@@ -41,14 +43,17 @@ def _send_email(to_email: str, subject: str, html_body: str, text_body: Optional
 def send_magic_code_email(self, to_email: str, code: str, expiry_minutes: int = 10):
     """Send magic code email - high priority, immediate delivery."""
     try:
-        subject = f"Your FreeFrame login code: {code}"
+        from ..services.branding_service import resolve_org_name
+        org_name = resolve_org_name()
+        subject = f"Your {org_name} login code: {code}"
         html_body = render_template(
             "email/magic_code.html",
             subject=subject,
             code=code,
             expiry_minutes=expiry_minutes,
+            org_name=org_name,
         )
-        text_body = f"Your FreeFrame login code is: {code}. This code expires in {expiry_minutes} minutes."
+        text_body = f"Your {org_name} login code is: {code}. This code expires in {expiry_minutes} minutes."
         
         success = _send_email(to_email, subject, html_body, text_body)
         if not success:

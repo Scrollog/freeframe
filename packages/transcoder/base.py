@@ -18,6 +18,9 @@ class TranscodeJob:
 @dataclass
 class TranscodeResult:
     success: bool
+    # This is a valid input with no video track, not a failed transcode.  The
+    # caller can re-route a video/* container to the audio pipeline.
+    no_video_stream: bool = False
     hls_prefix: Optional[str] = None
     thumbnail_keys: list[str] = field(default_factory=list)
     waveform_key: Optional[str] = None

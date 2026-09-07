@@ -347,8 +347,7 @@ export function LoginForm() {
         <div className="mb-8">
           <h1 className="text-xl font-semibold text-text-primary mb-1">Check your email</h1>
           <p className="text-sm text-text-secondary">
-            We sent a 6-digit code to{' '}
-            <span className="text-text-primary font-medium">{email}</span>
+            If <span className="text-text-primary font-medium">{email}</span> has an account, a 6-digit code is on its way.
           </p>
         </div>
 
@@ -375,8 +374,12 @@ export function LoginForm() {
             ))}
           </div>
 
-          {codeError && (
+          {codeError ? (
             <p className="text-sm text-status-error -mt-3">{codeError}</p>
+          ) : (
+            <p className="text-sm text-text-tertiary -mt-3">
+              Didn&apos;t get a code? Check the address for typos.
+            </p>
           )}
 
           <Button type="submit" size="lg" loading={loading} className="w-full">
@@ -384,11 +387,11 @@ export function LoginForm() {
           </Button>
         </form>
 
-        <div className="mt-6 text-center space-y-2">
+        <div className="mt-6 text-center">
           <button
             type="button"
             onClick={() => { setStep('email'); setCode(['', '', '', '', '', '']); setCodeError('') }}
-            className="block w-full text-sm text-text-tertiary hover:text-text-secondary transition-colors"
+            className="block w-full rounded-md border border-border bg-bg-secondary px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:border-border-focus hover:text-text-primary"
           >
             Use a different email
           </button>

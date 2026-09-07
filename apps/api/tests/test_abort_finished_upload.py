@@ -10,7 +10,7 @@ import uuid
 from unittest.mock import MagicMock
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 import apps.api.routers.upload as upload_module
 from apps.api.models.asset import ProcessingStatus
@@ -129,4 +129,21 @@ def test_a_real_storage_failure_is_still_surfaced(
                         lambda k, u: (_ for _ in ()).throw(_client_error("AccessDenied")))
 
     assert _abort(client, auth_headers).status_code >= 500
+    assert version.processing_status == ProcessingStatus.uploading
+
+
+def test_an_unreachable_store_makes_abort_retryable_without_changing_status(
+    client, auth_headers, mock_db, abort_rows, monkeypatch
+):
+    version, _ = abort_rows
+    monkeypatch.setattr(
+        upload_module,
+        "abort_multipart_upload",
+        lambda k, u: (_ for _ in ()).throw(EndpointConnectionError(endpoint_url="http://storage")),
+    )
+
+    response = _abort(client, auth_headers)
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
     assert version.processing_status == ProcessingStatus.uploading

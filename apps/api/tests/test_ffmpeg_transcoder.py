@@ -9,6 +9,7 @@ Verifies:
 """
 import asyncio
 import io
+from collections import deque
 import json
 from unittest.mock import MagicMock, patch
 
@@ -380,6 +381,19 @@ def test_run_returns_stdout():
         assert result == "output data"
 
 
+def test_successful_ffmpeg_tail_is_sanitized_for_later_validation_diagnostics(monkeypatch):
+    from packages.transcoder.ffmpeg_transcoder import _safe_diagnostic_tail
+
+    diagnostic = _safe_diagnostic_tail(deque([
+        "frame=100",
+        "Input #0, mov, from 'https://storage.example/video?X-Amz-Signature=secret'",
+        "out_time=00:00:22.250000",
+    ]))
+
+    assert "secret" not in diagnostic
+    assert "<redacted-url>" in diagnostic
+
+
 def test_transcode_returns_probe_metadata():
     t = FFmpegTranscoder(MagicMock(), "bucket")
     video_probe = json.dumps({
@@ -402,3 +416,26 @@ def test_transcode_returns_probe_metadata():
     assert result.fps == 25.0
     assert result.width == 1920
     assert result.duration_seconds == 8.0
+
+
+def test_transcode_reports_an_audio_only_video_container_before_encoding():
+    transcoder = FFmpegTranscoder(MagicMock(), "bucket")
+    audio_only_probe = json.dumps({"streams": [], "format": {"duration": "3.0"}})
+
+    with patch.object(FFmpegTranscoder, "_run", return_value=audio_only_probe) as run, \
+         patch.object(FFmpegTranscoder, "_run_with_progress") as transcode, \
+         patch.object(FFmpegTranscoder, "_get_presigned_url", return_value="http://in"):
+        result = asyncio.run(transcoder.transcode(_make_job()))
+
+    assert result.success is False
+    assert result.no_video_stream is True
+    assert "No video stream" in (result.error or "")
+    assert run.call_count == 1
+    transcode.assert_not_called()
+
+
+def test_no_video_stream_defaults_to_false_for_other_transcoder_backends():
+    from packages.transcoder.base import TranscodeResult
+
+    assert TranscodeResult(success=True).no_video_stream is False
+    assert TranscodeResult(success=False, error="boom").no_video_stream is False

@@ -24,6 +24,7 @@ import {
   Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { withBasePath } from '@/lib/base-path'
 import { buildCommentNumbers } from '@/lib/comment-numbers'
 import { getGuestCommentToken, removeGuestCommentToken } from '@/lib/guest-comment-tokens'
 import { useReview, type CreateCommentPayload } from '@/components/review/review-provider'
@@ -31,6 +32,7 @@ import { useReviewStore } from '@/stores/review-store'
 import { useMobileReviewSplit } from '@/hooks/use-mobile-review-split'
 import { CommentThreadConnector } from '@/components/comments/comment-thread-connector'
 import { SharedAssetCard } from '@/components/shared/asset-card'
+import { useInstanceBranding } from '@/components/shared/global-branding'
 import type {
   SharePermission,
   ShareLinkAppearance,
@@ -1218,6 +1220,7 @@ export function FolderShareViewer({
   onTitleCommit,
   onDescriptionCommit,
 }: FolderShareViewerProps) {
+  const { data: instanceBranding } = useInstanceBranding()
   // Build share_session query param for all API calls
   const sessionParam = shareSession ? `&share_session=${encodeURIComponent(shareSession)}` : ''
   const [currentSubfolderId, setCurrentSubfolderId] = React.useState<string | null>(null)
@@ -1239,9 +1242,10 @@ export function FolderShareViewer({
   // The embedded preview must not replace the dashboard's browser title.
   React.useEffect(() => {
     if (embedded) return
-    document.title = title ? `${title} – FreeFrame` : 'FreeFrame'
-    return () => { document.title = 'FreeFrame' }
-  }, [embedded, title])
+    const orgName = instanceBranding?.org_name ?? 'FreeFrame'
+    document.title = title ? `${title} – ${orgName}` : orgName
+    return () => { document.title = orgName }
+  }, [embedded, title, instanceBranding?.org_name])
   const [selectedAsset, setSelectedAsset] = React.useState<FolderShareAssetItem | null>(null)
 
   const [assets, setAssets] = React.useState<FolderShareAssetItem[]>([])
@@ -1252,8 +1256,9 @@ export function FolderShareViewer({
   const [loadingMore, setLoadingMore] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  const accentColor = appearance.accent_color ?? branding?.primary_color ?? '#6366f1'
   const isDark = appearance.theme !== 'light'
+  const accentColor = appearance.accent_color ?? branding?.primary_color ?? instanceBranding?.primary_color ?? '#6366f1'
+  const shareLogo = branding?.logo_url ?? (isDark ? instanceBranding?.logo_dark_url ?? instanceBranding?.logo_light_url : instanceBranding?.logo_light_url ?? instanceBranding?.logo_dark_url)
   const previewThemeStyle = React.useMemo(() => ({
     '--accent': accentColor,
     '--accent-hover': `color-mix(in srgb, ${accentColor} 82%, ${isDark ? 'white' : 'black'})`,
@@ -1468,7 +1473,7 @@ export function FolderShareViewer({
                       if (token) {
                         document.cookie = `ff_access_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
                       }
-                      window.location.href = '/projects'
+                      window.location.href = withBasePath('/projects')
                     }
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors"
@@ -1481,7 +1486,7 @@ export function FolderShareViewer({
                       localStorage.removeItem('ff_access_token')
                       localStorage.removeItem('ff_refresh_token')
                       document.cookie = 'ff_access_token=; path=/; max-age=0'
-                      window.location.href = '/login'
+                      window.location.href = withBasePath('/login')
                     }
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
@@ -1490,10 +1495,10 @@ export function FolderShareViewer({
                 </button>
               </div>
             </div>
-          ) : branding?.logo_url ? (
+          ) : shareLogo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={branding.logo_url}
+              src={shareLogo}
               alt=""
               className="h-7 w-7 rounded-full object-cover shrink-0"
             />
@@ -1502,7 +1507,7 @@ export function FolderShareViewer({
               className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-text-primary shrink-0"
               style={{ backgroundColor: accentColor }}
             >
-              {(branding?.custom_title ?? folderName ?? 'FF').substring(0, 2).toUpperCase()}
+              {(branding?.custom_title ?? instanceBranding?.org_name ?? folderName ?? 'FF').substring(0, 2).toUpperCase()}
             </div>
           )}
 

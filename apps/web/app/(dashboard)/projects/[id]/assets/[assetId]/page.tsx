@@ -210,6 +210,12 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
       setProcessingProgress((current) => current?.versionId === d.version_id ? null : current)
       refetchIfThisAsset(d.asset_id)
     },
+    onNewComment: (d) => {
+      if (d.asset_id === asset?.id) void refetchComments()
+    },
+    onCommentResolved: (d) => {
+      if (d.asset_id === asset?.id) void refetchComments()
+    },
   })
 
   useEffect(() => {

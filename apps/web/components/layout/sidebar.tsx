@@ -17,7 +17,6 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import { useUploadStore } from '@/stores/upload-store'
 import { useNotificationStore } from '@/stores/notification-store'
-import { useBrandingStore } from '@/stores/branding-store'
 import { useThemeStore } from '@/stores/theme-store'
 import { Avatar } from '@/components/shared/avatar'
 import { NotificationDrawer } from './notification-drawer'
@@ -25,6 +24,7 @@ import useSWR from 'swr'
 import { api } from '@/lib/api'
 import { StorageUsage, StorageRing } from '@/components/shared/storage-usage'
 import type { InstanceSettings } from '@/types'
+import { useInstanceBranding } from '@/components/shared/global-branding'
 
 interface NavItem {
   href: string
@@ -46,12 +46,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user, logout, isSuperAdmin } = useAuthStore()
   const { files: uploadFiles, togglePanel, panelOpen } = useUploadStore()
   const { unreadCount, fetchNotifications } = useNotificationStore()
-  const { orgName, orgLogoDark, orgLogoLight } = useBrandingStore()
+  const { data: branding } = useInstanceBranding()
   const { theme } = useThemeStore()
   // Pick logo based on resolved theme; fall back to the other if only one is set
+  const orgName = branding?.org_name ?? 'FreeFrame'
   const customLogo = theme === 'light'
-    ? (orgLogoLight ?? orgLogoDark)
-    : (orgLogoDark ?? orgLogoLight)
+    ? (branding?.logo_light_url ?? branding?.logo_dark_url)
+    : (branding?.logo_dark_url ?? branding?.logo_light_url)
   const [notifOpen, setNotifOpen] = React.useState(false)
   const activeUploads = uploadFiles.filter((f) => f.status === 'uploading' || f.status === 'pending' || f.status === 'processing').length
   const { data: instance } = useSWR<InstanceSettings>(

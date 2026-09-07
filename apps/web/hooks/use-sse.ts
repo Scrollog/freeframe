@@ -29,7 +29,9 @@ export interface NewCommentEvent {
 }
 
 export interface CommentResolvedEvent {
+  asset_id: string
   comment_id: string
+  resolved: boolean
 }
 
 export interface ApprovalUpdatedEvent {

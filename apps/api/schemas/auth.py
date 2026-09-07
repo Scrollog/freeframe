@@ -1,6 +1,22 @@
-from pydantic import BaseModel, EmailStr, field_validator, Field
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, EmailStr, field_validator, Field
 import uuid
 from ..models.user import UserStatus
+from ..services.auth_service import BCRYPT_MAX_PASSWORD_BYTES
+
+
+def _reject_bcrypt_overflow(password: str) -> str:
+    if len(password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(f"password must be at most {BCRYPT_MAX_PASSWORD_BYTES} UTF-8 bytes")
+    return password
+
+
+NewPassword = Annotated[str, Field(min_length=8), AfterValidator(_reject_bcrypt_overflow)]
+PreferenceString = Annotated[str, Field(max_length=64)]
+NotificationPreferences = Annotated[
+    dict[PreferenceString, PreferenceString], Field(max_length=50)
+]
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -60,12 +76,12 @@ class VerifyMagicCodeRequest(BaseModel):
     code: str
 
 class SetPasswordRequest(BaseModel):
-    password: str
+    password: NewPassword
 
 # Invite flow
 class AcceptInviteRequest(BaseModel):
     token: str
-    password: str
+    password: NewPassword
 
 class InviteInfoResponse(BaseModel):
     email: str
@@ -74,7 +90,15 @@ class InviteInfoResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=8, max_length=72)
+    new_password: NewPassword
+
+
+class PreferencesUpdate(BaseModel):
+    """Bounded user preferences supported by the current settings screens."""
+    model_config = {"extra": "forbid"}
+
+    theme: Annotated[str | None, Field(max_length=16)] = None
+    notifications: NotificationPreferences | None = None
 
 class UpdateProfileRequest(BaseModel):
     name: str | None = None

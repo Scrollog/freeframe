@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sign-in code instructions no longer claim delivery the API cannot confirm.** The code screen now truthfully explains that a code is on its way only if the address has an account, suggests checking for typos, and provides a clear way to correct the address without weakening account-enumeration protection.
+- **Audio-only MP4 and MPEG containers no longer fail video processing.** Files a browser labels `video/*` but which contain only an audio track are now recognised before HLS encoding, converted through the normal audio pipeline, and shown as audio instead of failing after retries.
+- **Secure share links are secure on every media route.** Streaming, thumbnails, downloads, versions and guest-comment endpoints now consistently require an authenticated user when a link's visibility is set to secure.
+- **Concurrent upload completion no longer starts duplicate transcodes.** The database atomically claims an uploading version before dispatching work, and completion also rejects an asset ID that does not belong to that version.
+- **Reviewers now receive live comment updates.** Creating, replying to or resolving a comment publishes a real-time event; the active review refreshes only when its own asset changes. Approval changes are published through the same bounded event service.
 - **Asset-card badges now follow the visible version.** The version badge uses the same dark treatment as duration and comments, sits at the right edge, and comment totals include only the version displayed by the card.
 - **The review header now shows live transcoding progress.** A processing version displays its current percentage instead of only a generic processing state.
 - **Asset cards now display the actual number of available versions.** Removed versions no longer inflate the counter merely because later version numbers remain immutable.

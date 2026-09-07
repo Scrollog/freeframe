@@ -25,11 +25,13 @@ def upload_rows(mock_db, test_user):
     """A version being uploaded plus its media file, wired into the mock session."""
     version = MagicMock()
     version.id = uuid.uuid4()
+    version.asset_id = uuid.uuid4()
     version.created_by = test_user.id
     version.processing_status = ProcessingStatus.uploading
 
     media_file = MagicMock()
     media_file.version_id = version.id
+    media_file.asset_id = version.asset_id
     media_file.s3_key_raw = "raw/p/a/v/original.mp4"
     media_file.file_size_bytes = 23 * MB
 
@@ -41,7 +43,7 @@ def _body(media_file, **overrides):
     body = {
         "s3_key": media_file.s3_key_raw,
         "upload_id": "upload-1",
-        "asset_id": str(uuid.uuid4()),
+        "asset_id": str(media_file.asset_id),
         "version_id": str(uuid.uuid4()),
         "parts": [{"PartNumber": 1, "ETag": '"client-said-so"'}],
     }
@@ -90,6 +92,46 @@ def test_completes_with_the_parts_storage_holds_not_the_ones_the_client_sent(
     ]
 
 
+def test_completion_reconciles_declared_size_with_storage(
+    client, auth_headers, mock_db, upload_rows, monkeypatch
+):
+    """A false client declaration must not permanently skew storage accounting."""
+    _, media_file = upload_rows
+    media_file.file_size_bytes = 20 * MB
+    _stub(
+        monkeypatch,
+        list_parts=lambda k, u: _listing(10 * MB, 10 * MB),
+        head=lambda k: 23 * MB,
+    )
+
+    response = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
+
+    assert response.status_code == 200
+    assert media_file.file_size_bytes == 23 * MB
+
+
+def test_completion_keeps_succeeding_when_size_reconciliation_fails(
+    client, auth_headers, mock_db, upload_rows, monkeypatch
+):
+    """The object is assembled before reconciliation, so its probe is non-critical."""
+    _, media_file = upload_rows
+    declared_size = media_file.file_size_bytes
+
+    def unavailable(_key):
+        raise RuntimeError("storage temporarily unavailable")
+
+    _stub(
+        monkeypatch,
+        list_parts=lambda k, u: _listing(10 * MB, 10 * MB, 3 * MB),
+        head=unavailable,
+    )
+
+    response = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
+
+    assert response.status_code == 200
+    assert media_file.file_size_bytes == declared_size
+
+
 def test_refuses_to_complete_an_upload_missing_a_part(
     client, auth_headers, mock_db, upload_rows, monkeypatch
 ):
@@ -136,10 +178,12 @@ def test_replaying_a_finished_upload_is_refused(
     """
     version = MagicMock()
     version.id = uuid.uuid4()
+    version.asset_id = uuid.uuid4()
     version.created_by = test_user.id
     version.processing_status = status
 
     media_file = MagicMock()
+    media_file.asset_id = version.asset_id
     media_file.s3_key_raw = "raw/p/a/v/original.mp4"
     media_file.file_size_bytes = 23 * MB
     mock_db.first.side_effect = [version, media_file]
@@ -156,6 +200,100 @@ def test_replaying_a_finished_upload_is_refused(
     assert resp.status_code == 409
     assert version.processing_status == status
     assert dispatched == []
+
+
+@pytest.mark.parametrize("status", [ProcessingStatus.processing, ProcessingStatus.ready])
+def test_retry_of_an_assembled_completed_upload_returns_its_real_status(
+    client, auth_headers, mock_db, test_user, monkeypatch, status
+):
+    """A lost completion response is a retry, not a conflicting replay."""
+    version = MagicMock()
+    version.id = uuid.uuid4()
+    version.asset_id = uuid.uuid4()
+    version.created_by = test_user.id
+    version.processing_status = status
+    version.upload_id = "upload-1"
+
+    media_file = MagicMock()
+    media_file.asset_id = version.asset_id
+    media_file.s3_key_raw = "raw/p/a/v/original.mp4"
+    media_file.file_size_bytes = 23 * MB
+    mock_db.first.side_effect = [version, media_file]
+
+    dispatched = []
+    monkeypatch.setattr(upload_module, "_trigger_processing", lambda a, v: dispatched.append(v))
+    monkeypatch.setattr(
+        upload_module, "list_upload_parts",
+        lambda k, u: pytest.fail("a retried completion must not list parts"),
+    )
+    monkeypatch.setattr(upload_module, "head_object_size", lambda k: 23 * MB)
+
+    response = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == status.value
+    assert version.processing_status == status
+    assert dispatched == []
+
+
+def test_retry_does_not_treat_a_failed_version_as_success(
+    client, auth_headers, mock_db, test_user, monkeypatch
+):
+    version = MagicMock()
+    version.id = uuid.uuid4()
+    version.asset_id = uuid.uuid4()
+    version.created_by = test_user.id
+    version.processing_status = ProcessingStatus.failed
+    version.upload_id = "upload-1"
+
+    media_file = MagicMock()
+    media_file.asset_id = version.asset_id
+    media_file.s3_key_raw = "raw/p/a/v/original.mp4"
+    media_file.file_size_bytes = 23 * MB
+    mock_db.first.side_effect = [version, media_file]
+
+    looked_up = []
+    monkeypatch.setattr(upload_module, "head_object_size", lambda k: looked_up.append(k) or 23 * MB)
+    monkeypatch.setattr(
+        upload_module, "list_upload_parts",
+        lambda k, u: pytest.fail("a failed version must not list parts"),
+    )
+
+    response = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
+
+    assert response.status_code == 409
+    assert looked_up == []
+
+
+def test_retry_with_an_unknown_upload_id_does_not_probe_storage(
+    client, auth_headers, mock_db, test_user, monkeypatch
+):
+    version = MagicMock()
+    version.id = uuid.uuid4()
+    version.asset_id = uuid.uuid4()
+    version.created_by = test_user.id
+    version.processing_status = ProcessingStatus.processing
+    version.upload_id = "upload-1"
+
+    media_file = MagicMock()
+    media_file.asset_id = version.asset_id
+    media_file.s3_key_raw = "raw/p/a/v/original.mp4"
+    media_file.file_size_bytes = 23 * MB
+    mock_db.first.side_effect = [version, media_file]
+
+    looked_up = []
+    monkeypatch.setattr(upload_module, "head_object_size", lambda k: looked_up.append(k) or 23 * MB)
+    monkeypatch.setattr(
+        upload_module, "list_upload_parts",
+        lambda k, u: pytest.fail("an unknown upload id must not list parts"),
+    )
+
+    response = client.post(
+        "/upload/complete", json=_body(media_file, upload_id="unknown"), headers=auth_headers
+    )
+
+    assert response.status_code == 409
+    assert looked_up == []
 
 
 # ------------------------------------------------------------------ idempotency
@@ -198,7 +336,7 @@ def test_a_reaped_upload_is_reported_rather_than_treated_as_done(
     assert version.processing_status == ProcessingStatus.uploading
 
 
-def test_a_head_object_that_errors_is_not_read_as_success(
+def test_a_head_object_that_errors_is_retryable_not_a_conflict(
     client, auth_headers, mock_db, upload_rows, monkeypatch
 ):
     """Guessing wrong here either loses a finished upload or reports a missing one done."""
@@ -214,7 +352,25 @@ def test_a_head_object_that_errors_is_not_read_as_success(
 
     resp = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
 
-    assert resp.status_code == 409
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "5"
+
+
+def test_a_storage_failure_listing_parts_is_retryable_not_a_crash(
+    client, auth_headers, mock_db, upload_rows, monkeypatch
+):
+    version, media_file = upload_rows
+
+    def throttled(k, u):
+        raise _client_error("SlowDown", "ListParts")
+
+    _stub(monkeypatch, list_parts=throttled)
+
+    response = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+    assert version.processing_status == ProcessingStatus.uploading
 
 
 # ------------------------------------------------------------------ fallback path
@@ -257,6 +413,7 @@ def test_a_key_that_does_not_belong_to_the_version_is_rejected(
     client, auth_headers, mock_db, test_user, monkeypatch
 ):
     version = MagicMock()
+    version.asset_id = uuid.uuid4()
     version.created_by = test_user.id
     version.processing_status = ProcessingStatus.uploading
     # The MediaFile lookup filters on version_id AND s3_key_raw, so a foreign key misses.
@@ -269,13 +426,48 @@ def test_a_key_that_does_not_belong_to_the_version_is_rejected(
         json={
             "s3_key": "raw/someone/else/original.mp4",
             "upload_id": "u",
-            "asset_id": str(uuid.uuid4()),
+            "asset_id": str(version.asset_id),
             "version_id": str(uuid.uuid4()),
             "parts": [],
         },
         headers=auth_headers,
     )
     assert resp.status_code == 404
+
+
+def test_asset_id_must_belong_to_the_uploaded_version(
+    client, auth_headers, mock_db, upload_rows, monkeypatch
+):
+    _, media_file = upload_rows
+    monkeypatch.setattr(
+        upload_module, "list_upload_parts", lambda *_: pytest.fail("storage must not be touched")
+    )
+
+    resp = client.post(
+        "/upload/complete",
+        json=_body(media_file, asset_id=str(uuid.uuid4())),
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 400
+    assert "Asset does not match" in resp.json()["detail"]
+
+
+def test_a_completion_that_loses_the_claim_does_not_dispatch_another_transcode(
+    client, auth_headers, mock_db, upload_rows, monkeypatch
+):
+    _, media_file = upload_rows
+    dispatched = []
+    _stub(monkeypatch, list_parts=lambda k, u: _listing(10 * MB, 10 * MB, 3 * MB))
+    monkeypatch.setattr(upload_module, "_trigger_processing", lambda *args: dispatched.append(args))
+    # A different request has already claimed the version between our initial
+    # read and the conditional update below.
+    mock_db.update.return_value = 0
+
+    resp = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
+
+    assert resp.status_code == 200
+    assert dispatched == []
 
 
 # ------------------------------------------------------------------ abort

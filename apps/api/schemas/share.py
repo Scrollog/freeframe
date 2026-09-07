@@ -32,7 +32,9 @@ class ShareLinkBannerUploadResponse(BaseModel):
 
 
 class ShareLinkCreate(BaseModel):
-    permission: SharePermission = SharePermission.view
+    # Review links should support the core feedback loop by default. Downloads
+    # remain opt-in because they expose the original file outside the viewer.
+    permission: SharePermission = SharePermission.comment
     visibility: str = "public"
     expires_at: Optional[datetime] = None
     password: Optional[str] = None
@@ -50,7 +52,7 @@ class MultiShareCreate(BaseModel):
     folder_ids: list[uuid.UUID] = []
     title: Optional[str] = None
     custom_slug: Optional[str] = Field(default=None, max_length=120)
-    permission: SharePermission = SharePermission.view
+    permission: SharePermission = SharePermission.comment
     visibility: str = "public"
     expires_at: Optional[datetime] = None
     password: Optional[str] = None

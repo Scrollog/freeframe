@@ -143,10 +143,11 @@ def test_presign_client_forces_path_style_and_sigv4(monkeypatch, captured_client
 
 
 class _FakeS3:
-    """Records put_bucket_cors; everything else succeeds silently."""
+    """Records startup bucket mutations without contacting object storage."""
 
     def __init__(self):
         self.cors_config = None
+        self.policy_calls = 0
 
     def head_bucket(self, **kwargs):
         return {}
@@ -155,6 +156,7 @@ class _FakeS3:
         self.cors_config = CORSConfiguration
 
     def put_bucket_policy(self, **kwargs):
+        self.policy_calls += 1
         return {}
 
 
@@ -187,3 +189,14 @@ def test_startup_cors_dedupes_frontend_localhost(monkeypatch):
     rules = fake.cors_config["CORSRules"]
     assert len(rules) == 1
     assert rules[0]["AllowedOrigins"] == ["http://localhost:3000"]
+    assert fake.policy_calls == 0
+
+
+def test_startup_never_restores_public_processed_bucket_access(monkeypatch):
+    monkeypatch.setattr(settings, "s3_storage", "minio")
+    fake = _FakeS3()
+    monkeypatch.setattr(s3_service, "_build_s3_client", lambda config=None: fake)
+
+    ensure_bucket_exists()
+
+    assert fake.policy_calls == 0

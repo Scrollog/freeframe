@@ -49,6 +49,7 @@ celery_app.conf.update(
     task_routes={
         "apps.api.tasks.transcode_tasks.*": {"queue": "transcoding"},
         "reap_stale_uploads": {"queue": "maintenance"},
+        "requeue_stuck_processing": {"queue": "maintenance"},
         "send_due_date_reminders": {"queue": "maintenance"},
         "cleanup_soft_deleted": {"queue": "maintenance"},
         "sweep_orphan_s3": {"queue": "maintenance"},
@@ -79,6 +80,10 @@ celery_app.conf.beat_schedule = {
     "reap-stale-uploads": {
         "task": "reap_stale_uploads",
         "schedule": crontab(minute="0"),  # every hour
+    },
+    "requeue-stuck-processing": {
+        "task": "requeue_stuck_processing",
+        "schedule": crontab(minute="30"),  # every hour, offset from reaping uploads
     },
     "cleanup-soft-deleted": {
         "task": "cleanup_soft_deleted",

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { AlertTriangle, Clock, Loader2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FolderShareViewer, type ShareBranding } from '@/components/share/folder-share-viewer'
+import { withBasePath } from '@/lib/base-path'
 import type { Asset, ShareLinkAppearance, SharePermission } from '@/types'
 
 interface ShareValidateResponse {
@@ -137,7 +138,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
   if (state.stage === 'expired') return <ErrorState expired />
   if (state.stage === 'invalid') return <ErrorState />
   if (state.stage === 'auth_required') {
-    return <div className="flex min-h-screen items-center justify-center bg-bg-primary p-4"><div className="w-full max-w-sm rounded-xl border border-border bg-bg-secondary p-6 shadow-xl text-center"><div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-muted"><Lock className="h-6 w-6 text-accent" /></div><h1 className="text-lg font-semibold text-text-primary">{state.title || 'Secure Share Link'}</h1><p className="mt-2 text-sm text-text-tertiary">This link is private. Please sign in to view the shared content.</p><a href="/login" className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent/90 transition-colors">Sign in to continue</a></div></div>
+    return <div className="flex min-h-screen items-center justify-center bg-bg-primary p-4"><div className="w-full max-w-sm rounded-xl border border-border bg-bg-secondary p-6 shadow-xl text-center"><div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-muted"><Lock className="h-6 w-6 text-accent" /></div><h1 className="text-lg font-semibold text-text-primary">{state.title || 'Secure Share Link'}</h1><p className="mt-2 text-sm text-text-tertiary">This link is private. Please sign in to view the shared content.</p><a href={withBasePath('/login')} className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent/90 transition-colors">Sign in to continue</a></div></div>
   }
   if (state.stage === 'folder_ready') {
     return <FolderShareViewer token={token} shareSession={shareSession} folderName={state.folderName} title={state.title} description={state.description} createdByName={state.createdByName} createdByAvatarUrl={state.createdByAvatarUrl} viewerName={state.viewerName} permission={state.permission} allowDownload={state.allowDownload} showVersions={state.showVersions} appearance={state.appearance} branding={state.branding} initialAssetId={state.initialAssetId} />

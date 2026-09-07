@@ -10,19 +10,22 @@ from ..models.user import User, UserStatus
 # Sessions handed to the Premiere panel, which lives on an editing workstation
 # and should not have to be re-authorised every week.
 PANEL_CLIENT = "panel"
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
+
+def bcrypt_password_bytes(password: str) -> bytes:
+    """Encode a password exactly as bcrypt's 72-byte input limit requires."""
+    return password.encode("utf-8")[:BCRYPT_MAX_PASSWORD_BYTES]
 
 def hash_password(password: str) -> str:
-    # bcrypt has a 72 byte limit, truncate to avoid errors
-    pwd_bytes = password[:72].encode('utf-8')
     salt = bcrypt.gensalt()
-    hashed_bytes = bcrypt.hashpw(pwd_bytes, salt)
+    hashed_bytes = bcrypt.hashpw(bcrypt_password_bytes(password), salt)
     return hashed_bytes.decode('utf-8')
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        plain_bytes = plain[:72].encode('utf-8')
         hashed_bytes = hashed.encode('utf-8')
-        return bcrypt.checkpw(plain_bytes, hashed_bytes)
+        return bcrypt.checkpw(bcrypt_password_bytes(plain), hashed_bytes)
     except ValueError:
         return False
 

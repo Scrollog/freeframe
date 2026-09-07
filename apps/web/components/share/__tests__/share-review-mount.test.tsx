@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { FolderShareViewer } from '../folder-share-viewer'
 
+vi.mock('@/components/shared/global-branding', () => ({
+  useInstanceBranding: () => ({ data: { org_name: 'Instance Brand', primary_color: '#7c3aed', logo_dark_url: 'https://cdn.test/global-dark.png', logo_light_url: null } }),
+}))
+
 // Regression for #192: ShareReviewInner used to resolve its hooks with bare
 // CommonJS require('@/...') calls. Node's loader does not understand the '@'
 // alias from vitest.config.ts, so the subtree threw "Cannot find module" the
@@ -92,6 +96,12 @@ describe('folder share — opening an asset mounts the review UI (#192)', () => 
     expect(preview.style.getPropertyValue('--accent')).toBe('#14b8a6')
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
     expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#5b8def')
+  })
+
+  it('uses global branding only when the share has no project branding', async () => {
+    const { container } = render(<FolderShareViewer token="t" folderName="F" title="T" description={null} permission="view" allowDownload={false} showVersions={false} appearance={{ theme: 'dark' } as never} branding={null} />)
+    await screen.findByText('Clip.mp4')
+    expect(container.querySelector('img[src="https://cdn.test/global-dark.png"]')).toBeInTheDocument()
   })
 
   it('allows inline title and description editing only when embedded for configuration', async () => {

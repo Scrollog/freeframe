@@ -2,10 +2,11 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
-from .routers import auth, users, projects, upload, events, assets, me, comments, approvals, share, metadata, branding, notifications, admin, setup, folders, hls_proxy, instance_settings
+from .routers import auth, users, projects, upload, events, assets, me, comments, approvals, share, metadata, branding, notifications, admin, setup, folders, hls_proxy, instance_settings, instance_branding
 from .services.s3_service import run_startup_bucket_setup
 from .services.email_service import mail_is_configured
 from .middleware.global_rate_limit import GlobalRateLimitMiddleware
@@ -26,6 +27,18 @@ async def lifespan(app: FastAPI):
 
 _disable_docs = os.getenv("DISABLE_DOCS", "").lower() in ("true", "1", "yes")
 
+
+def _warn_public_docs() -> None:
+    hostname = (urlparse((settings.frontend_url or "").strip()).hostname or "").lower()
+    if not _disable_docs and hostname and hostname not in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        logging.getLogger("apps.api.startup").warning(
+            "FastAPI docs and OpenAPI are public at /docs, /redoc and /openapi.json. "
+            "Set DISABLE_DOCS=true in production to disable them."
+        )
+
+
+_warn_public_docs()
+
 app = FastAPI(
     title="FreeFrame API",
     description="Media review platform API",
@@ -38,27 +51,25 @@ app = FastAPI(
     openapi_url=None if _disable_docs else "/openapi.json",
 )
 
-_cors_extra = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
-if "*" in _cors_extra:
-    # Allow any origin. A literal "*" can't be combined with allow_credentials,
-    # so echo the request origin via regex instead (keeps credentialed requests working).
-    _cors_origin_kwargs = {"allow_origin_regex": ".*"}
-else:
-    _cors_origin_kwargs = {
-        "allow_origins": [
-            settings.frontend_url,
-            "http://localhost:3000",
-            "http://localhost:3001",
-            *_cors_extra,
-        ]
-    }
+_cors_requested = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
+_cors_extra = [origin for origin in _cors_requested if origin != "*"]
+if "*" in _cors_requested:
+    logging.getLogger("apps.api.startup").warning(
+        "Ignoring wildcard CORS origin: credentialed API access requires explicit origins."
+    )
+_cors_origins = list(dict.fromkeys([
+    settings.frontend_origin,
+    "http://localhost:3000",
+    "http://localhost:3001",
+    *_cors_extra,
+]))
 
 app.add_middleware(
     CORSMiddleware,
-    **_cors_origin_kwargs,
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Range"],
     expose_headers=["Content-Disposition"],
 )
 app.add_middleware(GlobalRateLimitMiddleware)
@@ -82,6 +93,7 @@ app.include_router(setup.router)
 app.include_router(folders.router)
 app.include_router(hls_proxy.router)
 app.include_router(instance_settings.router)
+app.include_router(instance_branding.router)
 
 @app.get("/health")
 def health():

@@ -189,12 +189,21 @@ def test_list_upload_parts_stops_when_the_marker_does_not_advance(monkeypatch):
 def test_head_object_size_returns_content_length(monkeypatch):
     fake = MagicMock()
     fake.head_object.return_value = {"ContentLength": 4096}
-    monkeypatch.setattr(s3_service, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(s3_service, "_get_probe_client", lambda: fake)
     assert s3_service.head_object_size("raw/k") == 4096
 
 
 def test_head_object_size_returns_none_when_absent(monkeypatch):
     fake = MagicMock()
     fake.head_object.side_effect = _client_error("404")
-    monkeypatch.setattr(s3_service, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(s3_service, "_get_probe_client", lambda: fake)
     assert s3_service.head_object_size("raw/k") is None
+
+
+def test_head_object_size_refuses_to_guess_without_content_length(monkeypatch):
+    fake = MagicMock()
+    fake.head_object.return_value = {"ETag": '"abc"'}
+    monkeypatch.setattr(s3_service, "_get_probe_client", lambda: fake)
+
+    with pytest.raises(s3_service.ObjectSizeUnavailable):
+        s3_service.head_object_size("raw/k")

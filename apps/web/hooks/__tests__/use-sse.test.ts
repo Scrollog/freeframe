@@ -129,6 +129,67 @@ describe('useSSE hook', () => {
     })
   })
 
+  it('calls onCommentResolved with the resulting state', () => {
+    const onCommentResolved = vi.fn()
+    renderHook(() => useSSE('project-123', { onCommentResolved }))
+
+    act(() => {
+      MockEventSource.instances[0].emit('comment_resolved', {
+        asset_id: 'a1',
+        comment_id: 'c1',
+        resolved: true,
+      })
+    })
+
+    expect(onCommentResolved).toHaveBeenCalledWith({
+      asset_id: 'a1',
+      comment_id: 'c1',
+      resolved: true,
+    })
+  })
+
+  it('delivers all transcode lifecycle events with their declared payloads', () => {
+    const onTranscodeProgress = vi.fn()
+    const onTranscodeComplete = vi.fn()
+    const onTranscodeFailed = vi.fn()
+    renderHook(() => useSSE('project-123', {
+      onTranscodeProgress,
+      onTranscodeComplete,
+      onTranscodeFailed,
+    }))
+
+    act(() => {
+      MockEventSource.instances[0].emit('transcode_progress', {
+        asset_id: 'a1', version_id: 'v1', percent: 12.3,
+      })
+      MockEventSource.instances[0].emit('transcode_complete', {
+        asset_id: 'a1', version_id: 'v1',
+      })
+      MockEventSource.instances[0].emit('transcode_failed', {
+        asset_id: 'a1', version_id: 'v2', error: 'ffmpeg exited 1',
+      })
+    })
+
+    expect(onTranscodeProgress).toHaveBeenCalledWith({ asset_id: 'a1', version_id: 'v1', percent: 12.3 })
+    expect(onTranscodeComplete).toHaveBeenCalledWith({ asset_id: 'a1', version_id: 'v1' })
+    expect(onTranscodeFailed).toHaveBeenCalledWith({ asset_id: 'a1', version_id: 'v2', error: 'ffmpeg exited 1' })
+  })
+
+  it('delivers approval updates with the declared asset, reviewer, and status', () => {
+    const onApprovalUpdated = vi.fn()
+    renderHook(() => useSSE('project-123', { onApprovalUpdated }))
+
+    act(() => {
+      MockEventSource.instances[0].emit('approval_updated', {
+        asset_id: 'a1', user_id: 'u1', status: 'approved',
+      })
+    })
+
+    expect(onApprovalUpdated).toHaveBeenCalledWith({
+      asset_id: 'a1', user_id: 'u1', status: 'approved',
+    })
+  })
+
   it('cleans up EventSource on unmount', () => {
     const { unmount } = renderHook(() => useSSE('project-123'))
     const instance = MockEventSource.instances[0]

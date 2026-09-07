@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import re
@@ -14,6 +13,11 @@ logger = logging.getLogger(__name__)
 # Short timeouts for the one-off startup bucket check, so a slow or unreachable
 # store can't hang app startup for boto3's default ~60s (deploy-test finding #6).
 _STARTUP_S3_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2})
+
+# HeadObject is an advisory probe on request paths. It must fail promptly: a
+# completion or abort can decide safely only when storage answers, while a slow
+# probe must never hold a request thread for boto3's multi-minute defaults.
+_PROBE_S3_CONFIG = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 2})
 
 # S3 Content-Type and Cache-Control mappings
 CONTENT_TYPE_MAP = {
@@ -72,6 +76,12 @@ def _build_s3_client(config=None):
 def get_s3_client():
     """The shared, cached S3 client for server-side operations (see _build_s3_client)."""
     return _build_s3_client()
+
+
+@lru_cache(maxsize=1)
+def _get_probe_client():
+    """Client for short, non-authoritative object-size probes."""
+    return _build_s3_client(_PROBE_S3_CONFIG)
 
 @lru_cache(maxsize=1)
 def _get_presign_client():
@@ -136,14 +146,20 @@ def ensure_bucket_exists():
             # request (HLS segments, presigned uploads) fails CORS in the browser.
             # AWS-style backends echo only the matching origin either way, so
             # per-origin rules behave identically everywhere.
-            origins = list(dict.fromkeys([settings.frontend_url, "http://localhost:3000"]))
+            origins = list(dict.fromkeys([settings.frontend_origin, "http://localhost:3000"]))
             s3.put_bucket_cors(
                 Bucket=settings.s3_bucket,
                 CORSConfiguration={
                     "CORSRules": [
                         {
-                            "AllowedHeaders": ["*"],
-                            "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+                            "AllowedHeaders": [
+                                "Content-Type",
+                                "Content-MD5",
+                                "x-amz-content-sha256",
+                                "x-amz-date",
+                                "x-amz-decoded-content-length",
+                            ],
+                            "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
                             "AllowedOrigins": [origin],
                             "ExposeHeaders": ["ETag", "Content-Length", "x-amz-request-id"],
                             "MaxAgeSeconds": 3600,
@@ -165,27 +181,12 @@ def ensure_bucket_exists():
                 settings.s3_bucket, e,
             )
 
-        # Set public-read policy on processed/ prefix so HLS sub-playlists
-        # and .ts segments can be fetched without presigned URLs
-        try:
-            policy = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Sid": "PublicReadProcessed",
-                        "Effect": "Allow",
-                        "Principal": "*",
-                        "Action": "s3:GetObject",
-                        "Resource": f"arn:aws:s3:::{settings.s3_bucket}/processed/*",
-                    }
-                ],
-            }
-            s3.put_bucket_policy(
-                Bucket=settings.s3_bucket,
-                Policy=json.dumps(policy),
-            )
-        except ClientError:
-            pass  # Policy config failed, non-critical
+        # HLS manifests are served through the authenticated proxy and segments
+        # use presigned URLs. Keeping processed/* public is both unnecessary and
+        # unsafe: an exposed object key would bypass review/share permissions.
+        # Existing bucket policies are intentionally not deleted here because an
+        # instance may have a broader operator-managed policy; deployment tooling
+        # must inspect and remove only the obsolete public-read statement.
 
 
 def run_startup_bucket_setup(attempts: int = 5, base_delay: float = 3.0, _sleep=time.sleep) -> None:
@@ -282,6 +283,10 @@ class MultipartUploadGone(Exception):
     """
 
 
+class ObjectSizeUnavailable(Exception):
+    """Storage answered a head request without a usable object size."""
+
+
 class MultipartListingUnsupported(Exception):
     """The storage backend does not implement ListParts.
 
@@ -364,14 +369,18 @@ def head_object_size(s3_key: str) -> int | None:
     integrity signal that is portable: the completed object's ETag is a composite
     whose form is not guaranteed off AWS.
     """
-    s3 = get_s3_client()
+    s3 = _get_probe_client()
     try:
-        return s3.head_object(Bucket=settings.s3_bucket, Key=s3_key)["ContentLength"]
+        response = s3.head_object(Bucket=settings.s3_bucket, Key=s3_key)
     except ClientError as e:
         code = str(e.response.get("Error", {}).get("Code", ""))
         if code in UPLOAD_GONE_CODES:
             return None
         raise
+    size = response.get("ContentLength")
+    if size is None:
+        raise ObjectSizeUnavailable(f"storage reported no ContentLength for {s3_key}")
+    return size
 
 def build_download_filename(display_name: str, source: str | None) -> str:
     """Return display_name with an extension appended from `source` if missing.
@@ -388,6 +397,21 @@ def build_download_filename(display_name: str, source: str | None) -> str:
     if display_name.lower().endswith(ext.lower()):
         return display_name
     return f"{display_name}{ext}"
+
+
+MAX_DOWNLOAD_FILENAME_LEN = 200
+_UNSAFE_FILENAME_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def build_content_disposition(download_filename: str) -> str:
+    """Create a safe RFC 6266 attachment header from an untrusted filename."""
+    from urllib.parse import quote
+
+    name = _UNSAFE_FILENAME_CHARS.sub("", download_filename)
+    name = name.replace("\\", "_").replace("/", "_").strip()
+    name = name[:MAX_DOWNLOAD_FILENAME_LEN].strip() or "download"
+    ascii_fallback = name.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(name, safe="")}'
 
 
 def generate_presigned_put_url(s3_key: str, content_type: str | None = None, expires_in: int = 3600) -> str:
@@ -415,9 +439,7 @@ def generate_presigned_get_url(s3_key: str, expires_in: int = 3600, download_fil
     s3 = _get_presign_client()
     params: dict = {"Bucket": settings.s3_bucket, "Key": s3_key}
     if download_filename:
-        safe_name = re.sub(r'[\x00-\x1f\x7f]', '', download_filename)
-        safe_name = safe_name.replace('\\', '\\\\').replace('"', '\\"')
-        params["ResponseContentDisposition"] = f'attachment; filename="{safe_name}"'
+        params["ResponseContentDisposition"] = build_content_disposition(download_filename)
     return s3.generate_presigned_url(
         "get_object",
         Params=params,

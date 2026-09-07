@@ -29,7 +29,7 @@ export function clearTokens(): void {
   // Clear auth cookies
   document.cookie = `${ACCESS_TOKEN_KEY}=; path=/; max-age=0`
   document.cookie = `${REFRESH_TOKEN_KEY}=; path=/; max-age=0`
-  window.location.href = '/login'
+  window.location.href = withBasePath('/login')
 }
 
 // Deduplicate concurrent refresh calls — when access token expires, multiple
@@ -77,3 +77,4 @@ async function _doRefresh(): Promise<string | null> {
     return null
   }
 }
+import { withBasePath } from './base-path'

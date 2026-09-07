@@ -4,6 +4,7 @@ import os
 import asyncio
 import json
 import logging
+from celery.exceptions import Retry
 
 # Ensure the workspace root is on the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -13,6 +14,7 @@ from ..database import SessionLocal
 from ..models.asset import AssetVersion, MediaFile, ProcessingStatus, AssetType
 from ..models.asset import Asset
 from ..services.s3_service import get_s3_client
+from ..services import event_service
 from ..config import settings
 
 log = logging.getLogger("celery.transcode")
@@ -70,21 +72,40 @@ def process_asset(self, asset_id: str, version_id: str):
             log.info("Transcode completed for asset %s version %s", asset_id, version_id)
 
             # Publish SSE event (best-effort)
-            _publish_event(str(asset.project_id), "transcode_complete", {
+            event_service.publish_sync(str(asset.project_id), "transcode_complete", {
                 "asset_id": asset_id,
                 "version_id": version_id,
             })
 
         except Exception as exc:
             log.exception("Transcode failed for asset %s version %s", asset_id, version_id)
-            version.processing_status = ProcessingStatus.failed
-            db.commit()
-            _publish_event(str(asset.project_id), "transcode_failed", {
-                "asset_id": asset_id,
-                "version_id": version_id,
-                "error": str(exc),
-            })
-            raise self.retry(exc=exc)
+
+            def record_failure() -> None:
+                version.processing_status = ProcessingStatus.failed
+                db.commit()
+                event_service.publish_sync(str(asset.project_id), "transcode_failed", {
+                    "asset_id": asset_id,
+                    "version_id": version_id,
+                    "error": str(exc),
+                })
+
+            # A retry means processing is still active. Marking failed before
+            # every scheduled retry made the UI flap between failed/processing and
+            # allowed maintenance to treat a recoverable master as disposable.
+            if self.request.retries >= self.max_retries:
+                record_failure()
+                raise
+
+            try:
+                raise self.retry(exc=exc)
+            except Retry:
+                # Celery accepted the next attempt; preserve the truthful state.
+                raise
+            except Exception:
+                # A retry can fail to be enqueued (for example, broker refusal).
+                # Nothing else will execute for this version, so record failure.
+                record_failure()
+                raise
 
     finally:
         db.close()
@@ -109,13 +130,23 @@ def _process_video(db, asset, version, media_file, s3, output_prefix):
         # The web client already listens for this event (use-sse.ts) and renders
         # `Processing {percent}%`; until now nothing ever emitted it, so the bar
         # sat at "Processing..." for the whole job.
-        _publish_event(project_id, "transcode_progress", {
+        event_service.publish_sync(project_id, "transcode_progress", {
             "asset_id": asset_id,
             "version_id": str(version.id),
             "percent": round(percent, 1),
         })
 
     result = _run_async(transcoder.transcode(job, progress_callback=_on_progress))
+    if result.no_video_stream:
+        # MIME type identifies the container, not its tracks.  An audio-only
+        # MP4/MPEG is a valid upload, so correct its type and process it as
+        # audio rather than retrying a video encode that cannot succeed.
+        log.info("Asset %s has no video stream; routing it to audio", asset.id)
+        asset.asset_type = AssetType.audio
+        db.flush()
+        _process_audio(db, asset, version, media_file, s3, output_prefix)
+        return
+
     if not result.success:
         raise RuntimeError(f"Transcode failed: {result.error}")
 
@@ -150,18 +181,6 @@ def _process_image(db, asset, version, media_file, s3, output_prefix):
     media_file.s3_key_processed = result.get("webp_key")
     media_file.s3_key_thumbnail = result.get("thumbnail_key")
     db.flush()
-
-
-def _publish_event(project_id: str, event_type: str, payload: dict):
-    """Publish SSE event via Redis from Celery worker context."""
-    try:
-        import redis as sync_redis
-        r = sync_redis.from_url(settings.redis_url, decode_responses=True)
-        message = json.dumps({"type": event_type, "payload": payload})
-        r.publish(f"project:{project_id}", message)
-        r.close()
-    except Exception:
-        pass  # SSE publish is best-effort
 
 
 def _eligible_media_rows(db):

@@ -1,6 +1,6 @@
 import logging
 import os
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 import uuid
@@ -15,7 +15,7 @@ from ..services.s3_service import (
     create_multipart_upload, presign_upload_part,
     complete_multipart_upload, abort_multipart_upload,
     list_upload_parts, head_object_size, UPLOAD_GONE_CODES,
-    MultipartUploadGone, MultipartListingUnsupported,
+    MultipartUploadGone, MultipartListingUnsupported, ObjectSizeUnavailable,
 )
 from ..services.permissions import get_project_member, require_project_role
 from ..models.project import ProjectRole
@@ -169,21 +169,26 @@ def presign_part(
     return PresignPartResponse(presigned_url=url, part_number=body.part_number)
 
 
-def _already_assembled(s3_key: str, expected_bytes: int, version_id) -> bool:
-    """True if a fully assembled object is sitting at `s3_key` at the expected size.
+def _storage_unreachable(what: str = "complete") -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail=f"Could not reach storage to {what} this upload. Please retry.",
+        headers={"Retry-After": "5"},
+    )
 
-    Used to tell "this upload already finished" from "this upload is gone". Size
-    rather than ETag, because a completed multipart object's ETag is a composite
-    whose form is not guaranteed off AWS.
+
+def _already_assembled(s3_key: str, expected_bytes: int, version_id) -> bool | None:
+    """Whether an object is assembled, absent, or cannot currently be checked.
+
+    ``None`` intentionally means unknown rather than absent. Callers must not
+    delete or condemn an upload merely because a bounded storage probe timed out.
     """
     try:
         return head_object_size(s3_key) == expected_bytes
-    except ClientError:
-        # A HeadObject we cannot complete says nothing either way, and guessing wrong
-        # here either loses a finished upload or reports a missing one as done.
+    except (BotoCoreError, ClientError, ObjectSizeUnavailable):
         logger.warning("could not check whether upload %s already completed", version_id,
                        exc_info=True)
-        return False
+        return None
 
 
 def _parts_from_listing(stored: list[dict], expected_total_bytes: int) -> list[dict]:
@@ -266,6 +271,11 @@ def complete_upload(
     if version.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized for this upload")
 
+    # Ownership was established for this version, not an arbitrary asset ID in
+    # the request. Processing uses the asset for both storage and SSE routing.
+    if body.asset_id != version.asset_id:
+        raise HTTPException(status_code=400, detail="Asset does not match this version")
+
     # Match the key against this version rather than taking the request's word for
     # it: ownership was proved for the version, never for whatever key the body
     # carried. Matching on both also keeps working if a version ever holds more
@@ -277,13 +287,43 @@ def complete_upload(
     if not media_file:
         raise HTTPException(status_code=404, detail="Upload not found for this version")
 
-    # Only an upload that is still uploading can be completed. Without this, a
+    # Only an upload that is still uploading can be *completed*. Without this, a
     # replay of this request against an already-finished version rewinds it to
     # `processing` and queues a second transcode -- and because `/upload/*` is
     # exempt from the global rate limiter, a loop over it would park the whole
-    # transcoding queue on re-runs. The upload id is not a credential either: any
-    # unrecognised value reads as "already gone", so replaying needs no secret.
+    # transcoding queue on re-runs. A retry after a lost response is different:
+    # its object is already assembled, its recorded upload id matches, and the
+    # useful answer is the version's real state rather than a false conflict.
     if version.processing_status != ProcessingStatus.uploading:
+        completed_before = version.processing_status in (
+            ProcessingStatus.processing,
+            ProcessingStatus.ready,
+        )
+        # NULL keeps completion retries working for versions created before the
+        # upload id was persisted. For newer versions the recorded id prevents an
+        # arbitrary replay from turning the storage probe into an oracle.
+        same_upload = version.upload_id is None or version.upload_id == body.upload_id
+        assembled = (
+            _already_assembled(media_file.s3_key_raw, media_file.file_size_bytes, version.id)
+            if completed_before and same_upload
+            else False
+        )
+        if assembled:
+            # The storage lookup can take long enough for the transcode to finish
+            # or fail. Return only a fresh successful state, never a stale success
+            # after another worker has marked the version failed.
+            db.refresh(version)
+            if version.processing_status in (
+                ProcessingStatus.processing,
+                ProcessingStatus.ready,
+            ):
+                return CompleteUploadResponse(
+                    status=version.processing_status.value,
+                    asset_id=version.asset_id,
+                    version_id=version.id,
+                )
+        elif assembled is None:
+            raise _storage_unreachable("check")
         raise HTTPException(
             status_code=409,
             detail=f"This upload is already {version.processing_status.value}.",
@@ -292,23 +332,60 @@ def complete_upload(
     s3_key = media_file.s3_key_raw
 
     def _finish() -> CompleteUploadResponse:
-        version.processing_status = ProcessingStatus.processing
+        """Atomically claim the version before dispatching its transcode job."""
+        # The declared size is used for the pre-upload guard, but the completed
+        # object is the source of truth for lasting storage accounting. Do this
+        # best-effort: a transient HeadObject failure must not reject bytes that
+        # storage already accepted.
+        try:
+            actual_size = head_object_size(s3_key)
+        except Exception:  # noqa: BLE001 - completion is already durable
+            logger.warning("could not reconcile size for version %s", version.id, exc_info=True)
+        else:
+            if actual_size is not None and actual_size != media_file.file_size_bytes:
+                logger.warning(
+                    "version %s declared %d bytes but storage holds %d; recording actual size",
+                    version.id, media_file.file_size_bytes, actual_size,
+                )
+                media_file.file_size_bytes = actual_size
+
+        claimed = (
+            db.query(AssetVersion)
+            .filter(
+                AssetVersion.id == version.id,
+                AssetVersion.processing_status == ProcessingStatus.uploading,
+            )
+            .update(
+                {AssetVersion.processing_status: ProcessingStatus.processing},
+                synchronize_session=False,
+            )
+        )
         db.commit()
-        background_tasks.add_task(_trigger_processing, body.asset_id, body.version_id)
+
+        if claimed:
+            # A SQLAlchemy bulk update does not refresh the loaded instance.
+            version.processing_status = ProcessingStatus.processing
+            background_tasks.add_task(_trigger_processing, version.asset_id, version.id)
         return CompleteUploadResponse(
-            status="processing", asset_id=body.asset_id, version_id=body.version_id
+            status="processing", asset_id=version.asset_id, version_id=version.id
         )
 
     try:
         stored = list_upload_parts(s3_key, body.upload_id)
+    except (ClientError, BotoCoreError) as error:
+        logger.warning("listing parts for upload %s failed: %s", version.id, error)
+        raise _storage_unreachable("complete") from error
     except MultipartUploadGone:
         # Completing consumes the upload id, so a client that retries after losing
         # the first response lands here. If the object is sitting there at the right
         # size the work is already done, and saying so is far better than failing:
         # a version left at `uploading` is deleted by the reaper a day later.
-        if _already_assembled(s3_key, media_file.file_size_bytes, version.id):
+        assembled = _already_assembled(s3_key, media_file.file_size_bytes, version.id)
+        if assembled:
             logger.warning("upload %s was already complete; treating retry as success", version.id)
             return _finish()
+        if assembled is None:
+            raise _storage_unreachable("check")
         raise HTTPException(
             status_code=409,
             detail="This upload is no longer available. Please upload the file again.",
@@ -347,10 +424,21 @@ def complete_upload(
         # Same race as above, one step later: another request completed this upload
         # between our listing and our call.
         if str(e.response.get("Error", {}).get("Code", "")) in UPLOAD_GONE_CODES:
-            if _already_assembled(s3_key, media_file.file_size_bytes, version.id):
+            assembled = _already_assembled(s3_key, media_file.file_size_bytes, version.id)
+            if assembled:
                 return _finish()
+            if assembled is None:
+                raise _storage_unreachable("check") from e
         logger.warning("completing upload %s failed: %s", version.id, e)
         raise
+    except BotoCoreError as error:
+        # A timeout can occur after storage has assembled the multipart object.
+        # Confirmed assembly is success; every other answer remains retryable.
+        if _already_assembled(s3_key, media_file.file_size_bytes, version.id) is True:
+            logger.warning("completion for upload %s timed out after assembly", version.id)
+            return _finish()
+        logger.warning("completing upload %s could not reach storage: %s", version.id, error)
+        raise _storage_unreachable("complete") from error
 
     return _finish()
 
@@ -392,6 +480,9 @@ def abort_upload(
             logger.warning("abort of upload %s failed: %s", version.id, e)
             raise
         logger.info("upload %s was already gone when aborted", version.id)
+    except BotoCoreError as error:
+        logger.warning("abort of upload %s could not reach storage: %s", version.id, error)
+        raise _storage_unreachable("abort") from error
 
     # Only an upload still in progress is resolved here. The client fires this from
     # the catch of every completion failure, so a version that already reached
@@ -406,8 +497,10 @@ def abort_upload(
             MediaFile.version_id == version.id,
             MediaFile.s3_key_raw == body.s3_key,
         ).first()
-        assembled = media_file is not None and _already_assembled(
-            body.s3_key, media_file.file_size_bytes, version.id
+        assembled = (
+            _already_assembled(body.s3_key, media_file.file_size_bytes, version.id)
+            if media_file is not None
+            else False
         )
         if assembled:
             logger.warning(

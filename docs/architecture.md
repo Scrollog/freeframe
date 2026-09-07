@@ -68,13 +68,16 @@ API creates presigned URLs ──▶ Frontend uploads chunks directly to S3
 Frontend calls /upload/complete
     │
     ▼
-API dispatches Celery task ──▶ Worker downloads from S3
-    │                              │
-    ▼                              ▼
-API sends SSE: transcode_progress  FFmpeg processes file
-    │                              │
-    ▼                              ▼
-API sends SSE: transcode_complete  Worker uploads outputs to S3
+API dispatches Celery task ──▶ Worker reads S3 through a presigned URL
+                                   │
+                                   ▼
+                               FFmpeg processes file and publishes progress
+                                   │
+                                   ▼
+                               Worker uploads outputs to S3
+                                   │
+                                   ▼
+Frontend receives  ◀────────── Redis-backed SSE: complete or failed
 ```
 
 ### Review and Approval
@@ -89,7 +92,7 @@ Frontend loads HLS stream (video) / WebP (image) / MP3 (audio)
 Reviewer adds comment (with optional timecode + drawing annotation)
     │
     ▼
-API saves comment ──▶ SSE: new_comment ──▶ Other viewers see it instantly
+API saves comment ──▶ SSE: new_comment ──▶ Affected viewers refetch comments
     │
     ▼
 Reviewer approves / rejects ──▶ SSE: approval_updated
@@ -107,10 +110,16 @@ Reviewer approves / rejects ──▶ SSE: approval_updated
 4. FFmpeg generates multi-bitrate HLS:
    - 1080p (CRF 20), 720p (CRF 22), 360p (CRF 26)
    - 2-second segments with forced keyframes
-5. Thumbnails generated (1 per 10 seconds)
-6. Waveform JSON generated for audio track
-7. All outputs uploaded to S3 at `hls/{project_id}/{version_id}/`
-8. Asset status set to `ready`, SSE event fired
+   - Rungs above the source resolution are omitted; if all requested rungs are
+     larger, the smallest requested rung is retained.
+   - An audio-only MP4/MPEG container is retyped and processed through the
+     audio pipeline instead of attempting an invalid HLS encode.
+5. One representative thumbnail is generated.
+6. Outputs upload under `processed/{project_id}/{asset_id}/{version_id}/`.
+7. Asset status is set to `ready` and `transcode_complete` is published.
+
+Video processing does not create a waveform; waveform JSON is an audio-pipeline
+output only.
 
 ### Audio
 
@@ -123,44 +132,39 @@ Reviewer approves / rejects ──▶ SSE: approval_updated
 
 1. Raw file (JPEG, PNG, HEIC, TIFF) uploaded to S3
 2. Worker converts to optimized WebP + generates thumbnail
-3. For **carousels**: each image processed independently with sequence ordering
+3. The `image_carousel` enum value currently follows the image processor; there
+   is no multi-file carousel ingestion flow yet.
 
 ---
 
 ## Permission Model
 
-Permissions are layered. Each level inherits downward:
+FreeFrame is single-tenant. Content authorization is project-scoped or
+share-scoped; there is no active organization or team layer in the ORM.
 
 ```
-Organization
-├── owner    ── full control
-├── admin    ── manage members, teams, projects
-└── member   ── access assigned projects
-    │
-    Team
-    ├── lead    ── manage team members
-    └── member  ── access team projects
-        │
-        Project
-        ├── owner    ── full control over project
-        ├── editor   ── upload, edit assets
-        ├── reviewer ── comment, approve/reject
-        └── viewer   ── read-only access
-            │
-            Share Link
-            ├── approve  ── can approve/reject
-            ├── comment  ── can add comments
-            └── view     ── read-only
+Project
+├── owner    ── full control over project
+├── editor   ── upload and edit assets
+├── reviewer ── comment and approve/reject
+└── viewer   ── read-only
+
+Share link
+├── approve  ── may approve/reject
+├── comment  ── may add comments
+└── view     ── read-only
 ```
 
-**Asset access is checked in this order:**
-1. Is the user the asset creator?
-2. Is the user a project member (any role)?
-3. Was the asset shared directly with the user (`AssetShare`)?
-4. Was the asset shared with the user's team?
-5. Is the user an org admin?
+`can_access_asset` grants authenticated access in this order:
+1. Asset creator
+2. Any project membership
+3. Direct `AssetShare` for that user
+4. A public project
 
-Guest users (via share links) use the `GuestUser` table — they provide email + name only, no account required.
+Anything else requires a scoped share link. Share links may target an asset,
+folder, project, or explicit items, can be password-protected, and secure links
+also require authentication. Guest commenters use `GuestUser` with name and
+email, not a full account.
 
 ---
 
@@ -172,16 +176,18 @@ FreeFrame uses **Server-Sent Events** (not WebSockets) for real-time updates. A 
 GET /events/{project_id}
 ```
 
-Event types:
+`routers/events.py` streams the Redis channel `project:{project_id}` through
+`services/event_service.py`. Event types:
 
 | Event | Payload | When |
 |-------|---------|------|
-| `transcode_progress` | `{asset_id, percent}` | During video processing |
+| `transcode_progress` | `{asset_id, version_id, percent}` | During video processing |
 | `transcode_complete` | `{asset_id, version_id}` | Processing finished |
-| `transcode_failed` | `{asset_id, error}` | Processing failed |
+| `transcode_failed` | `{asset_id, version_id, error}` | Processing failed |
 | `new_comment` | `{asset_id, comment_id, author}` | Comment posted |
-| `comment_resolved` | `{comment_id}` | Comment marked resolved |
+| `comment_resolved` | `{asset_id, comment_id, resolved}` | Comment resolution toggled |
 | `approval_updated` | `{asset_id, user_id, status}` | Approval status changed |
+| `watermark_complete` | `{asset_id, key}` | Watermark output uploaded |
 
 Clients reconnect automatically on disconnect. SSE was chosen over WebSockets because it's simpler, works through most proxies, and is sufficient for an async review workflow.
 
@@ -189,25 +195,28 @@ Clients reconnect automatically on disconnect. SSE was chosen over WebSockets be
 
 ## Database
 
-All tables use **soft delete** (`deleted_at` column). Records are never hard-deleted in application code.
+Soft delete is common but not universal: check a model for `deleted_at` before
+using it. Queries apply the active-row filter explicitly. Application-level
+deletion is normally recoverable, while the maintenance retention GC permanently
+removes eligible soft-deleted records and their S3 objects after
+`SOFT_DELETE_RETENTION_DAYS` (30 days by default).
 
 Key entity relationships:
 
 ```
-Organization ──┬── Teams ──── TeamMembers
-               └── OrgMembers
-                     │
-                     ▼
-               Projects ──── ProjectMembers
-                     │
-                     ├── Folders
-                     ├── Assets ──┬── AssetVersions ──── MediaFiles
-                     │            ├── Comments ──┬── Annotations
-                     │            │              ├── Attachments
-                     │            │              └── Reactions
-                     │            ├── Approvals
-                     │            └── AssetShares
-                     └── Collections
+Projects ──── ProjectMembers
+    │
+    ├── Folders ──── Assets
+    ├── Assets ──┬── AssetVersions ──── MediaFiles
+    │            ├── Comments ──┬── Annotations
+    │            │              ├── Attachments
+    │            │              └── Reactions
+    │            ├── Approvals
+    │            └── AssetShares
+    ├── Collections
+    ├── ProjectBranding / WatermarkSettings
+    └── ShareLinks ──┬── ShareLinkItems
+                     └── ShareLinkActivity
 ```
 
 **ORM:** SQLAlchemy 2.0 with Alembic for migrations.

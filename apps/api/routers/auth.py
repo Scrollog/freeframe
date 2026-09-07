@@ -10,7 +10,7 @@ from ..schemas.auth import (
     SendMagicCodeRequest, SendMagicCodeResponse,
     VerifyMagicCodeRequest, SetPasswordRequest,
     AcceptInviteRequest, InviteInfoResponse,
-    ChangePasswordRequest,
+    ChangePasswordRequest, PreferencesUpdate,
 )
 from ..services.auth_service import (
     hash_password, verify_password,
@@ -189,7 +189,11 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    dependencies=[Depends(rate_limit("refresh_token", 30, 60))],
+)
 def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
@@ -238,13 +242,13 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @router.patch("/me/preferences", response_model=UserResponse)
 def update_preferences(
-    body: dict,
+    body: PreferencesUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Update user preferences (theme, etc). Merges with existing preferences."""
     current_prefs = current_user.preferences or {}
-    current_prefs.update(body)
+    current_prefs.update(body.model_dump(exclude_unset=True))
     current_user.preferences = current_prefs
     # Force SQLAlchemy to detect the JSON change
     from sqlalchemy.orm.attributes import flag_modified

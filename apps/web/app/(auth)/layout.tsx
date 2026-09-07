@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import Image from 'next/image'
+import { AuthBranding } from '@/components/auth/auth-branding'
 
 export const metadata: Metadata = {
   title: 'FreeFrame — Auth',
@@ -17,17 +17,7 @@ export default function AuthLayout({
         <div className="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 h-[600px] w-[600px] rounded-full bg-accent/[0.04] blur-[120px]" />
       </div>
 
-      {/* Logo */}
-      <div className="relative mb-10">
-        <Image
-          src="/logo-full.png"
-          alt="FreeFrame"
-          width={180}
-          height={48}
-          priority
-          className="h-12 w-auto"
-        />
-      </div>
+      <AuthBranding />
 
       {/* Card */}
       <div className="relative w-full max-w-sm rounded-xl border border-border bg-bg-secondary/50 backdrop-blur-sm p-6 shadow-xl animate-fade-in">

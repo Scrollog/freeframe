@@ -232,34 +232,6 @@ def _reap_stale_uploads(db) -> int:
         return 0
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    # 0. Rescue versions abandoned mid-transcode.
-    #
-    # A version enters `processing` when the Celery task picks it up and only
-    # leaves it when the task writes `ready` or `failed`. If the worker dies in
-    # between -- which every redeploy does, since the container is recreated and
-    # its ffmpeg killed -- nothing ever updates the row. It sits in `processing`
-    # forever: a permanent spinner in the UI, holding its raw object in the
-    # bucket, invisible to the sweeps below because those only look at
-    # `uploading` / `failed`. Three such rows were found in production, together
-    # holding 6.6 GB.
-    #
-    # Marked `failed` rather than soft-deleted: the raw upload is intact, so the
-    # owner can retry instead of losing the file. `last_activity_at` is refreshed
-    # so the reclamation window below starts now -- otherwise a row that has been
-    # stuck for days would be flipped and reclaimed within the same hour, taking
-    # the raw file with it before anyone saw the failure.
-    stuck = db.query(AssetVersion).filter(
-        AssetVersion.processing_status == ProcessingStatus.processing,
-        AssetVersion.deleted_at.is_(None),
-        func.coalesce(AssetVersion.last_activity_at, AssetVersion.created_at) < cutoff,
-    ).all()
-    for v in stuck:
-        v.processing_status = ProcessingStatus.failed
-        v.last_activity_at = datetime.now(timezone.utc)
-    if stuck:
-        db.flush()
-        log.info("reaper: %d version(s) abandoned mid-transcode marked failed", len(stuck))
-
     # 1. Reclaim stuck `uploading` / `failed` versions past the cutoff.
     # Age by last activity, falling back to creation for rows that predate it being
     # recorded. A large upload on a slow line can legitimately outlive the window
@@ -427,6 +399,66 @@ def reap_stale_uploads():
         n = _reap_stale_uploads(db)
         db.commit()
         return n
+    finally:
+        db.close()
+
+
+def _requeue_stuck_processing(db) -> int:
+    """Recover versions left in ``processing`` after a worker interruption.
+
+    A completed output wins over reprocessing: it is promoted to ``ready``. For
+    every other stale version we enqueue the existing transcode task and keep its
+    state as ``processing`` so the UI remains truthful while the retry starts.
+    """
+    hours = settings.stuck_processing_timeout_hours
+    if hours <= 0:
+        log.info("processing-requeue: disabled (stuck_processing_timeout_hours=%s)", hours)
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    stuck_versions = db.query(AssetVersion).filter(
+        AssetVersion.processing_status == ProcessingStatus.processing,
+        AssetVersion.deleted_at.is_(None),
+        func.coalesce(AssetVersion.last_activity_at, AssetVersion.created_at) < cutoff,
+    ).all()
+    if not stuck_versions:
+        return 0
+
+    # Import here to avoid the cleanup -> celery app -> task-module import cycle.
+    from .celery_app import send_task_safe
+    from .transcode_tasks import process_asset
+
+    requeued = 0
+    recovered = 0
+    for version in stuck_versions:
+        processed_file = db.query(MediaFile.id).filter(
+            MediaFile.version_id == version.id,
+            MediaFile.s3_key_processed.isnot(None),
+        ).first()
+        if processed_file is not None:
+            version.processing_status = ProcessingStatus.ready
+            recovered += 1
+            continue
+
+        send_task_safe(process_asset, str(version.asset_id), str(version.id))
+        requeued += 1
+
+    db.flush()
+    log.info(
+        "processing-requeue: %d stale version(s): %d requeued, %d recovered from existing output",
+        len(stuck_versions), requeued, recovered,
+    )
+    return requeued
+
+
+@celery_app.task(name="requeue_stuck_processing")
+def requeue_stuck_processing():
+    """Periodic beat task that safely resumes abandoned transcodes."""
+    db = SessionLocal()
+    try:
+        requeued = _requeue_stuck_processing(db)
+        db.commit()
+        return requeued
     finally:
         db.close()
 

@@ -51,7 +51,7 @@ freeframe/
 │   │   ├── routers/        # API route handlers
 │   │   ├── services/       # business logic (auth, s3, permissions, …)
 │   │   ├── tasks/          # Celery async tasks (transcode, email)
-│   │   ├── middleware/     # auth, rate limiting, soft delete, setup guard
+│   │   ├── middleware/     # auth, rate limiting, setup guard
 │   │   ├── alembic/        # database migrations
 │   │   └── tests/          # pytest suite (mock-DB based — see Gotchas)
 │   └── web/                # Next.js 14 App Router frontend
@@ -113,9 +113,11 @@ Read this section before writing backend code or tests.
   `routers/share.py`, `services/permissions.py`, key `apps/web` files) goes missing. If a
   test is genuinely obsolete, replace it — don't remove coverage.
 
-- **Soft delete is universal.** Every entity has a `deleted_at` column. **Never hard-delete
-  in application code**, and always filter `deleted_at.is_(None)` in queries. Deletion is
-  recoverable and audited; retention GC handles eventual hard-deletion.
+- **Soft delete is model-specific.** Check the model before assuming it has `deleted_at`;
+  some dependent records do not. For models that have it, filter
+  `deleted_at.is_(None)` explicitly in queries — there is no automatic middleware. Application
+  deletes are normally soft deletes; the maintenance retention GC permanently removes eligible
+  soft-deleted roots and their associated storage after `SOFT_DELETE_RETENTION_DAYS`.
 
 - **Model change ⇒ Alembic migration.** After editing a SQLAlchemy model:
   ```bash

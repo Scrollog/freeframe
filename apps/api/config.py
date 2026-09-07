@@ -53,16 +53,20 @@ class Settings(BaseSettings):
     panel_refresh_token_expire_days: int = 30
     frontend_url: str = "http://localhost:3000"
     # Extra browser origins allowed by CORS, comma-separated (in addition to the
-    # frontend + localhost defaults). Set to "*" to allow any origin — handy for
-    # testing on a LAN via a machine's IP; do not use "*" in production.
+    # frontend + localhost defaults). Each value must be an explicit origin;
+    # wildcard origins are intentionally ignored for credentialed API access.
     cors_allow_origins: str = ""
     transcoder_engine: str = "ffmpeg"
 
     # Maximum size (bytes) for a single uploaded file. 0 = unlimited (no per-file cap).
     # Note: S3 multipart still caps effective size at ~10,000 parts x chunk size.
     max_upload_bytes: int = 0
+    # Maximum size for a single global-branding image (logos, icons and favicon).
+    instance_branding_max_asset_bytes: int = 5 * 1024 * 1024
 
     # Reaper: uploads stuck in `uploading`/`failed` longer than this are reclaimed. Hours.
+    # Processing versions are recovered separately after this safe timeout; 0 disables it.
+    stuck_processing_timeout_hours: int = 6
     stale_upload_timeout_hours: int = 24
 
     # Retention GC: rows soft-deleted (deleted_at) longer than this are hard-deleted and their
@@ -119,5 +123,14 @@ class Settings(BaseSettings):
                     f"leave S3_ENDPOINT unset."
                 )
         return self
+
+    @property
+    def frontend_origin(self) -> str:
+        """Return the browser origin for ``frontend_url`` without any path."""
+        raw = (self.frontend_url or "").strip()
+        parsed = urlparse(raw)
+        if not parsed.scheme or not parsed.netloc:
+            return raw
+        return f"{parsed.scheme}://{parsed.netloc}"
 
 settings = Settings()

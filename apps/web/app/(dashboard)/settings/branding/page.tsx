@@ -1,234 +1,48 @@
 'use client'
 
 import * as React from 'react'
-import { Palette, Upload, X, Check, RotateCcw, Moon, Sun } from 'lucide-react'
+import useSWR from 'swr'
+import { Check, Palette, RotateCcw, Upload, X } from 'lucide-react'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
-import { useBrandingStore } from '@/stores/branding-store'
-import { useThemeStore } from '@/stores/theme-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-function LogoUploadSlot({
-  label,
-  description,
-  logoUrl,
-  onUpload,
-  onRemove,
-  previewBg,
-}: {
-  label: string
-  description: string
-  logoUrl: string | null
-  onUpload: (url: string) => void
-  onRemove: () => void
-  previewBg: string
-}) {
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
+type Slot = 'logo-light' | 'logo-dark' | 'login-logo' | 'favicon' | 'apple-icon'
+type Branding = {
+  org_name: string; primary_color: string | null; powered_by_freeframe: boolean
+  logo_light_url: string | null; logo_dark_url: string | null; login_logo_url: string | null
+  favicon_url: string | null; apple_icon_url: string | null
+}
+const slots: { id: Slot; label: string; field: keyof Branding; accept: string }[] = [
+  { id: 'logo-dark', label: 'Dark theme logo', field: 'logo_dark_url', accept: 'image/png,image/jpeg,image/webp,image/svg+xml' },
+  { id: 'logo-light', label: 'Light theme logo', field: 'logo_light_url', accept: 'image/png,image/jpeg,image/webp,image/svg+xml' },
+  { id: 'login-logo', label: 'Login logo', field: 'login_logo_url', accept: 'image/png,image/jpeg,image/webp,image/svg+xml' },
+  { id: 'favicon', label: 'Favicon', field: 'favicon_url', accept: 'image/png,image/svg+xml,image/x-icon' },
+  { id: 'apple-icon', label: 'Apple touch icon', field: 'apple_icon_url', accept: 'image/png,image/jpeg,image/webp' },
+]
 
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const result = ev.target?.result
-      if (typeof result === 'string') onUpload(result)
-    }
-    reader.readAsDataURL(file)
-    e.target.value = ''
+function AssetSlot({ slot, url, disabled, refresh }: { slot: typeof slots[number]; url: string | null; disabled: boolean; refresh: () => void }) {
+  const input = React.useRef<HTMLInputElement>(null); const [busy, setBusy] = React.useState(false); const [error, setError] = React.useState('')
+  async function upload(file: File) {
+    if (file.size > 5 * 1024 * 1024) return setError('File must be 5 MB or smaller.')
+    setBusy(true); setError('')
+    try {
+      const signed = await api.post<{ upload_url: string; key: string }>(`/instance/branding/${slot.id}-upload?content_type=${encodeURIComponent(file.type)}`)
+      const result = await fetch(signed.upload_url, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file })
+      if (!result.ok) throw new Error('Storage upload failed.')
+      await api.post(`/instance/branding/${slot.id}-confirm`, { key: signed.key }); refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Upload failed.') } finally { setBusy(false) }
   }
-
-  return (
-    <div className="flex items-start gap-4 p-4 rounded-lg border border-border bg-bg-secondary">
-      {/* Preview */}
-      <div
-        className={`h-16 w-16 rounded-xl border border-border flex items-center justify-center overflow-hidden shrink-0 ${previewBg}`}
-      >
-        {logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={logoUrl} alt={label} className="h-full w-full object-contain p-1" />
-        ) : (
-          <span className="text-xs text-text-tertiary text-center leading-tight px-1">No logo</span>
-        )}
-      </div>
-
-      {/* Info + actions */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-text-primary">{label}</p>
-        <p className="text-xs text-text-tertiary mt-0.5 mb-3">{description}</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/svg+xml,image/webp"
-            className="hidden"
-            onChange={handleFile}
-          />
-          <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="h-3.5 w-3.5" />
-            {logoUrl ? 'Replace' : 'Upload'}
-          </Button>
-          {logoUrl && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRemove}
-              className="text-status-error hover:text-status-error hover:bg-status-error/10"
-            >
-              <X className="h-3.5 w-3.5" />
-              Remove
-            </Button>
-          )}
-        </div>
-        <p className="text-2xs text-text-tertiary mt-2">PNG, JPG, SVG or WebP · Max 2 MB</p>
-      </div>
-    </div>
-  )
+  return <div className="rounded-lg border border-border bg-bg-secondary p-4"><div className="flex gap-3"><div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-bg-tertiary">{url ? <img src={url} alt={slot.label} className="h-full w-full object-contain p-1" /> : <span className="text-2xs text-text-tertiary">None</span>}</div><div className="min-w-0 flex-1"><p className="text-sm font-medium text-text-primary">{slot.label}</p><div className="mt-3 flex gap-2"><input ref={input} className="hidden" type="file" accept={slot.accept} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void upload(f) }} /><Button size="sm" variant="secondary" disabled={disabled || busy} onClick={() => input.current?.click()}><Upload className="h-3.5 w-3.5" />{busy ? 'Uploading…' : url ? 'Replace' : 'Upload'}</Button>{url && <Button size="sm" variant="ghost" disabled={disabled || busy} onClick={() => { setBusy(true); void api.delete(`/instance/branding/${slot.id}`).then(refresh).finally(() => setBusy(false)) }}><X className="h-3.5 w-3.5" />Remove</Button>}</div>{error && <p className="mt-2 text-xs text-status-error">{error}</p>}</div></div></div>
 }
 
 export default function BrandingPage() {
-  const { user } = useAuthStore()
-  const { orgName, orgLogoDark, orgLogoLight, setOrgName, setOrgLogoDark, setOrgLogoLight, resetAll } = useBrandingStore()
-  const { theme } = useThemeStore()
-
-  const [nameValue, setNameValue] = React.useState(orgName)
-  const [nameSaved, setNameSaved] = React.useState(false)
-
-  React.useEffect(() => { setNameValue(orgName) }, [orgName])
-
-  function handleSaveName() {
-    const trimmed = nameValue.trim()
-    if (!trimmed) return
-    setOrgName(trimmed)
-    setNameSaved(true)
-    setTimeout(() => setNameSaved(false), 2000)
-  }
-
-  const isAdmin = user?.is_superadmin
-  const hasCustomBranding = orgName !== 'FreeFrame' || orgLogoDark !== null || orgLogoLight !== null
-
-  // Which logo is active right now
-  const activeLogo = theme === 'light' ? (orgLogoLight ?? orgLogoDark) : (orgLogoDark ?? orgLogoLight)
-
-  return (
-    <div className="p-6 max-w-2xl space-y-8">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-muted">
-          <Palette className="h-5 w-5 text-accent" />
-        </div>
-        <div>
-          <h1 className="text-lg font-semibold text-text-primary">Branding</h1>
-          <p className="text-sm text-text-secondary">Customize your workspace name and logo</p>
-        </div>
-      </div>
-
-      {/* Workspace name */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-text-primary">Workspace name</h2>
-        <div className="p-4 rounded-lg border border-border bg-bg-secondary space-y-3">
-          {isAdmin ? (
-            <div className="flex items-center gap-2">
-              <Input
-                value={nameValue}
-                onChange={(e) => setNameValue(e.target.value)}
-                placeholder="e.g. Acme Studio"
-                onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
-                className="max-w-xs"
-              />
-              <Button
-                size="sm"
-                onClick={handleSaveName}
-                disabled={!nameValue.trim() || nameValue.trim() === orgName}
-              >
-                {nameSaved ? <Check className="h-3.5 w-3.5" /> : 'Save'}
-              </Button>
-            </div>
-          ) : (
-            <p className="text-sm text-text-secondary">{orgName}</p>
-          )}
-          <p className="text-xs text-text-tertiary">
-            Shown in the sidebar. Defaults to &ldquo;FreeFrame&rdquo;.
-          </p>
-        </div>
-      </section>
-
-      {/* Logo — per theme */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-text-primary">Logo</h2>
-        <p className="text-xs text-text-tertiary -mt-1">
-          Upload separate logos for dark and light themes. If only one is set, it will be used for both.
-        </p>
-
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Moon className="h-3.5 w-3.5 text-text-tertiary" />
-            <span className="text-xs font-medium text-text-secondary uppercase tracking-wider">Dark theme</span>
-          </div>
-          <LogoUploadSlot
-            label="Dark theme logo"
-            description="Shown when the app is in dark mode. Use a light-colored logo."
-            logoUrl={orgLogoDark}
-            onUpload={isAdmin ? setOrgLogoDark : () => {}}
-            onRemove={isAdmin ? () => setOrgLogoDark(null) : () => {}}
-            previewBg="bg-zinc-900"
-          />
-
-          <div className="flex items-center gap-2 mt-4 mb-1">
-            <Sun className="h-3.5 w-3.5 text-text-tertiary" />
-            <span className="text-xs font-medium text-text-secondary uppercase tracking-wider">Light theme</span>
-          </div>
-          <LogoUploadSlot
-            label="Light theme logo"
-            description="Shown when the app is in light mode. Use a dark-colored logo."
-            logoUrl={orgLogoLight}
-            onUpload={isAdmin ? setOrgLogoLight : () => {}}
-            onRemove={isAdmin ? () => setOrgLogoLight(null) : () => {}}
-            previewBg="bg-white"
-          />
-        </div>
-      </section>
-
-      {/* Live preview */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-text-primary">Preview</h2>
-        <p className="text-xs text-text-tertiary -mt-1">
-          Currently showing the <strong>{theme === 'light' ? 'light' : 'dark'}</strong> theme logo.
-        </p>
-        <div className="rounded-lg border border-border bg-bg-secondary p-4 flex items-center gap-2.5">
-          <div className="h-7 w-7 rounded-md overflow-hidden flex items-center justify-center bg-bg-tertiary shrink-0">
-            {activeLogo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={activeLogo} alt={orgName} className="h-full w-full object-contain" />
-            ) : (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/logo-icon.png" alt="FreeFrame" className="h-6 w-6 object-contain logo-dark" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/logo-icon-dark.png" alt="FreeFrame" className="h-6 w-6 object-contain logo-light" />
-              </>
-            )}
-          </div>
-          <span className="text-sm font-semibold text-text-primary tracking-tight">{orgName}</span>
-        </div>
-      </section>
-
-      {/* Reset */}
-      {isAdmin && hasCustomBranding && (
-        <section className="pt-2 border-t border-border">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-status-error hover:text-status-error hover:bg-status-error/10 gap-1.5"
-            onClick={() => { resetAll(); setNameValue('FreeFrame') }}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reset to defaults
-          </Button>
-        </section>
-      )}
-
-      {!isAdmin && (
-        <p className="text-xs text-text-tertiary">Only super admins can edit branding settings.</p>
-      )}
-    </div>
-  )
+  const { user } = useAuthStore(); const admin = Boolean(user?.is_superadmin)
+  const { data, mutate } = useSWR<Branding>('/instance/branding', () => api.get<Branding>('/instance/branding'))
+  const [name, setName] = React.useState(''); const [color, setColor] = React.useState(''); const [saving, setSaving] = React.useState(false)
+  React.useEffect(() => { if (data) { setName(data.org_name); setColor(data.primary_color ?? '') } }, [data])
+  if (!data) return <div className="p-6 text-sm text-text-secondary">Loading branding…</div>
+  async function save(values: Record<string, unknown>) { setSaving(true); try { await api.put('/instance/branding', values); await mutate() } finally { setSaving(false) } }
+  return <div className="max-w-3xl space-y-8 p-6"><header className="flex gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-muted"><Palette className="h-5 w-5 text-accent" /></div><div><h1 className="text-lg font-semibold text-text-primary">Global branding</h1><p className="text-sm text-text-secondary">Applies to the whole instance and public pages.</p></div></header><section className="space-y-3"><h2 className="text-sm font-semibold">Identity</h2><div className="space-y-3 rounded-lg border border-border bg-bg-secondary p-4"><label className="block text-xs text-text-secondary">Organisation name<Input className="mt-1" disabled={!admin} value={name} onChange={(e) => setName(e.target.value)} /></label><label className="block text-xs text-text-secondary">Accent colour<Input className="mt-1" disabled={!admin} placeholder="#7c3aed" value={color} onChange={(e) => setColor(e.target.value)} /></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!admin} checked={data.powered_by_freeframe} onChange={(e) => void save({ powered_by_freeframe: e.target.checked })} />Show “Powered by FreeFrame”</label><Button size="sm" disabled={!admin || saving || !name.trim()} onClick={() => void save({ org_name: name.trim(), primary_color: color || null })}>{saving ? 'Saving…' : <><Check className="h-3.5 w-3.5" />Save identity</>}</Button></div></section><section className="space-y-3"><h2 className="text-sm font-semibold">Assets</h2><p className="text-xs text-text-tertiary">Validated server-side; maximum 5 MB per file.</p><div className="grid gap-3 sm:grid-cols-2">{slots.map((slot) => <AssetSlot key={slot.id} slot={slot} url={data[slot.field] as string | null} disabled={!admin} refresh={() => void mutate()} />)}</div></section><section className="rounded-lg border border-border bg-bg-secondary p-4"><p className="text-2xs uppercase text-text-tertiary">Preview</p><div className="mt-3 flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md bg-bg-tertiary">{data.logo_dark_url ? <img src={data.logo_dark_url} alt="" className="h-full w-full object-contain p-1" /> : <Palette className="h-4 w-4 text-text-tertiary" />}</div><span className="font-semibold text-text-primary">{data.org_name}</span></div></section>{admin && <Button variant="ghost" size="sm" className="text-status-error" onClick={() => void api.delete('/instance/branding').then(() => mutate())}><RotateCcw className="h-3.5 w-3.5" />Reset all branding</Button>}{!admin && <p className="text-xs text-text-tertiary">Only super administrators can edit global branding.</p>}</div>
 }

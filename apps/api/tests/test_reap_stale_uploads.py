@@ -58,9 +58,9 @@ def test_reap_logic_soft_deletes_and_deletes_s3(mock_db, monkeypatch):
 
     version = MagicMock(deleted_at=None)
     media = MagicMock(s3_key_raw="raw/x", s3_key_processed="processed/x", s3_key_thumbnail="thumb/x")
-    # stuck-processing query returns []; versions query returns [version];
-    # media-files query (inside the loop) returns [media]
-    mock_db.all.side_effect = [[], [version], [media]]
+    # Version query returns [version]; media-files query (inside the loop)
+    # returns [media]. Processing versions are handled by the separate requeue.
+    mock_db.all.side_effect = [[version], [media]]
 
     n = ct._reap_stale_uploads(mock_db)
 
@@ -105,9 +105,8 @@ def test_reap_selects_only_old_uploading_and_failed(real_db, monkeypatch):
     assert ready.deleted_at is None
 
 
-def test_reap_marks_abandoned_processing_as_failed(real_db, monkeypatch):
-    """Real DB: a version stranded in `processing` (worker killed mid-transcode, which
-    every redeploy does) is flipped to `failed` so the UI stops showing a spinner."""
+def test_reaper_leaves_processing_versions_for_the_dedicated_requeue(real_db, monkeypatch):
+    """The upload reaper must never turn a recoverable transcode into a failure."""
     monkeypatch.setattr(ct, "list_stale_multipart_uploads", lambda cutoff: [])
     monkeypatch.setattr(ct, "delete_object", lambda k: None)
     monkeypatch.setattr(ct, "delete_prefix", lambda k: None)
@@ -117,13 +116,57 @@ def test_reap_marks_abandoned_processing_as_failed(real_db, monkeypatch):
 
     ct._reap_stale_uploads(real_db)
 
-    assert stuck.processing_status == ProcessingStatus.failed
-    # Not reclaimed in the same pass: last_activity_at was refreshed, so the raw
-    # upload survives long enough for the owner to see the failure and retry.
+    assert stuck.processing_status == ProcessingStatus.processing
     assert stuck.deleted_at is None
-    # A transcode still legitimately running is untouched.
     assert recent.processing_status == ProcessingStatus.processing
     assert recent.deleted_at is None
+
+
+def test_requeue_stuck_processing_retries_only_old_versions(real_db, monkeypatch):
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "stuck_processing_timeout_hours", 6)
+    dispatched = []
+    monkeypatch.setattr(
+        "apps.api.tasks.celery_app.send_task_safe",
+        lambda task, *args: dispatched.append((task, args)),
+    )
+    stuck = _seed_version(real_db, ProcessingStatus.processing, 8)
+    recent = _seed_version(real_db, ProcessingStatus.processing, 1)
+
+    assert ct._requeue_stuck_processing(real_db) == 1
+    assert len(dispatched) == 1
+    assert dispatched[0][1] == (str(stuck.asset_id), str(stuck.id))
+    assert stuck.processing_status == ProcessingStatus.processing
+    assert recent.processing_status == ProcessingStatus.processing
+
+
+def test_requeue_stuck_processing_promotes_existing_output(real_db, monkeypatch):
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "stuck_processing_timeout_hours", 6)
+    dispatched = []
+    monkeypatch.setattr(
+        "apps.api.tasks.celery_app.send_task_safe",
+        lambda task, *args: dispatched.append((task, args)),
+    )
+    stuck = _seed_version(real_db, ProcessingStatus.processing, 8)
+    media_file = real_db.query(MediaFile).filter(MediaFile.version_id == stuck.id).one()
+    media_file.s3_key_processed = f"processed/{stuck.id}/playlist.m3u8"
+    real_db.flush()
+
+    assert ct._requeue_stuck_processing(real_db) == 0
+    assert dispatched == []
+    assert stuck.processing_status == ProcessingStatus.ready
+
+
+def test_requeue_stuck_processing_can_be_disabled(mock_db, monkeypatch):
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "stuck_processing_timeout_hours", 0)
+
+    assert ct._requeue_stuck_processing(mock_db) == 0
+    mock_db.query.assert_not_called()
 
 
 def test_reaper_disabled_when_timeout_zero(mock_db, monkeypatch):

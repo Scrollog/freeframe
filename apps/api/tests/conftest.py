@@ -134,6 +134,26 @@ def _bypass_setup_guard(monkeypatch):
     monkeypatch.setattr("apps.api.middleware.setup_guard._setup_complete", True)
 
 
+@pytest.fixture(autouse=True)
+def _clear_rate_limit_counters():
+    """Keep endpoint tests independent when they share the local test Redis DB.
+
+    Only rate-limit counters are removed; magic-code, invite and share-session
+    keys remain untouched so tests that exercise those flows retain control of
+    their own state. Redis is optional for this mock-DB suite, therefore an
+    unavailable local service must not fail the test before its own assertions.
+    """
+    try:
+        from apps.api.services.redis_service import get_redis
+
+        redis_client = get_redis()
+        keys = [*redis_client.scan_iter(match="rl:*"), *redis_client.scan_iter(match="grl:*")]
+        if keys:
+            redis_client.delete(*keys)
+    except Exception:
+        pass
+
+
 @pytest.fixture
 def real_db():
     """Real-Postgres session inside a transaction that is always rolled back (no writes persist).

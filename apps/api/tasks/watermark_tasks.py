@@ -2,7 +2,6 @@ import uuid
 import tempfile
 import os
 import subprocess
-import json
 import sys
 
 # Ensure the workspace root is on the path (same pattern as transcode_tasks)
@@ -12,18 +11,7 @@ from .celery_app import celery_app
 from ..database import SessionLocal
 from ..models.asset import Asset, MediaFile
 from ..config import settings
-
-
-def _publish_event(project_id: str, event_type: str, payload: dict):
-    """Publish SSE event via Redis from Celery worker context (best-effort)."""
-    try:
-        import redis as sync_redis
-        r = sync_redis.from_url(settings.redis_url, decode_responses=True)
-        message = json.dumps({"type": event_type, "payload": payload})
-        r.publish(f"project:{project_id}", message)
-        r.close()
-    except Exception:
-        pass
+from ..services import event_service
 
 
 @celery_app.task(name="apply_watermark", bind=True, max_retries=3, default_retry_delay=60)
@@ -116,7 +104,7 @@ def apply_watermark(
                 put_object(wm_key, f.read(), "video/mp4")
 
         # Publish SSE event (best-effort)
-        _publish_event(
+        event_service.publish_sync(
             str(asset.project_id),
             "watermark_complete",
             {"asset_id": asset_id, "key": wm_key},
