@@ -70,7 +70,10 @@ services:
     restart: unless-stopped
 
   minio-init:
-    image: minio/mc:latest
+    # The standalone minio/mc image is no longer reliably published on Docker
+    # Hub. The pinned server image already ships the `mc` client, keeping the
+    # bootstrap on the same known-good, architecture-compatible release.
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     depends_on:
       minio:
         condition: service_healthy
