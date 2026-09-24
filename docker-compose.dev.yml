@@ -28,7 +28,9 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # See docker-compose.coolify.yml: MinIO's public Docker Hub image was
+    # removed, so development uses Coolify's maintained multi-arch rebuild.
+    image: coollabsio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -49,9 +51,8 @@ services:
       retries: 5
 
   minio-init:
-    # Keep bucket bootstrap on the pinned MinIO image: it includes `mc`, while
-    # the standalone minio/mc image is no longer reliably published.
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # The same image includes `mc` for bucket initialization.
+    image: coollabsio/minio:latest
     depends_on:
       minio:
         condition: service_healthy
