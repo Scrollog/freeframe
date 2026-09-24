@@ -65,7 +65,9 @@ services:
     volumes:
       - miniodata:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      # coollabsio/minio ships `mc` but not curl. `mc ready local` is the
+      # MinIO-native readiness probe and was verified on the deployment VM.
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
       retries: 5
