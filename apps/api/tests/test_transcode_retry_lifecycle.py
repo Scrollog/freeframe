@@ -9,6 +9,13 @@ from apps.api.models.asset import ProcessingStatus
 from apps.api.tasks import transcode_tasks
 
 
+def test_transcode_task_is_redelivered_after_a_lost_remote_worker():
+    task = getattr(transcode_tasks.process_asset, "_get_current_object", lambda: transcode_tasks.process_asset)()
+
+    assert task.acks_late is True
+    assert task.reject_on_worker_lost is True
+
+
 def _run_failed_task(retries: int, retry_exception: BaseException):
     asset = SimpleNamespace(
         id=uuid.uuid4(), project_id=uuid.uuid4(), asset_type=transcode_tasks.AssetType.video,

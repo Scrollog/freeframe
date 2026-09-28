@@ -9,10 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
+- **A database migration is required.** Run `alembic upgrade head` (revision
+  `0a1b2c3d4e5f`) before deploying a remote transcoding worker. It adds the
+  `queued` processing state used while the optional worker is offline.
 - **A database migration is required.** Run `alembic upgrade head` (revision `fb2c3d4e5f6a`) to add secure short codes, configurable public-share metadata, and custom share-link aliases.
 
 ### Added
 
+- **Dedicated transcoding worker deployment.** Coolify operators can now deploy
+  `docker-compose.transcoder-worker.yml` on a separate processing host. The
+  main application remains available when that host is offline; completed
+  uploads wait in the durable transcoding queue and show as **Queued**.
 - **Two-step trash deletion.** Items in Recently Deleted can now be permanently deleted with an explicit confirmation, reclaiming their stored media, generated files, comments, and attachments immediately.
 
 - **Editors can move individual asset versions to trash** from the version selector. The final remaining version and versions still uploading or processing are protected; use asset deletion for the former and wait for processing to finish for the latter.

@@ -129,7 +129,9 @@ def list_projects(db: Session = Depends(get_db), current_user: User = Depends(ge
         .filter(
             Asset.project_id.in_(all_project_ids), Asset.deleted_at.is_(None),
             AssetVersion.deleted_at.is_(None),
-            AssetVersion.processing_status.in_([ProcessingStatus.processing, ProcessingStatus.ready]),
+            AssetVersion.processing_status.in_(
+                [ProcessingStatus.queued, ProcessingStatus.processing, ProcessingStatus.ready]
+            ),
         )
         .group_by(Asset.project_id)
         .all()

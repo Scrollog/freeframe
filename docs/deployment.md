@@ -290,6 +290,34 @@ Video transcoding is CPU-intensive. Adjust `TRANSCODING_CONCURRENCY` based on yo
 | 4 cores | 2-3 |
 | 8+ cores | 4-6 |
 
+### Dedicated Transcoding Host
+
+For CPU-intensive video workloads, the Coolify deployment can keep its API,
+database, Redis and storage on the primary host while moving only the Celery
+`transcoding` worker to a second host. The primary Coolify Compose deliberately
+places its local video worker behind the `local-transcoding` profile, so it does
+not start by default. The application remains available if the remote worker is
+offline; completed uploads stay **Queued** in Redis until it returns.
+
+1. Connect both hosts over a private network (for example WireGuard or
+   Tailscale). Do not expose PostgreSQL or Redis to the public Internet.
+2. Create a second Coolify application from the same revision of this repository
+   and select [`docker-compose.transcoder-worker.yml`](../docker-compose.transcoder-worker.yml).
+3. Set the second application's `DATABASE_URL`, `REDIS_URL`, and `S3_ENDPOINT`
+   to private or otherwise worker-reachable endpoints of the primary deployment.
+   `S3_ENDPOINT` must not be `http://minio:9000`, which only resolves inside the
+   primary Compose network. `S3_PUBLIC_ENDPOINT` is optional on this worker.
+4. Copy the S3 credentials, `S3_BUCKET`, `JWT_SECRET`, `FRONTEND_URL`, and
+   optional transcoder settings. Start with `TRANSCODING_CONCURRENCY=1`.
+5. Deploy the remote worker first, then deploy the primary application. The
+   worker name and logs are distinct, but both deployments must use the same
+   repository revision.
+
+The remote worker consumes only the `transcoding` queue. It does not expose an
+HTTP port and does not run migrations. Its `process_asset` jobs use late
+acknowledgements and a one-job prefetch limit, so an abrupt processing-host loss
+returns the uncompleted video to Redis for a later worker instead of losing it.
+
 ### Email Workers
 
 Email sending is I/O-bound and lightweight. The default of `2` is sufficient for most deployments.

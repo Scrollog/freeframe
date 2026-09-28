@@ -133,3 +133,15 @@ def test_every_beat_scheduled_task_is_registered():
     scheduled = {entry["task"] for entry in celery_app.conf.beat_schedule.values()}
     unknown = scheduled - registered
     assert not unknown, f"beat schedules unregistered task(s): {sorted(unknown)}"
+
+
+def test_dedicated_transcoder_consumes_only_video_jobs():
+    """The remote Compose must never accidentally become a general worker."""
+    path = REPO_ROOT / "docker-compose.transcoder-worker.yml"
+    if not path.is_file():
+        pytest.skip("remote transcoder Compose not present (not a full checkout)")
+
+    compose = yaml.safe_load(path.read_text()) or {}
+    worker = (compose.get("services") or {}).get("transcoding_worker") or {}
+
+    assert queues_from_command(worker.get("command")) == {"transcoding"}

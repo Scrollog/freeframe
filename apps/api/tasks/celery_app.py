@@ -31,6 +31,9 @@ celery_app.conf.update(
     broker_connection_retry=True,
     broker_connection_max_retries=5,
     broker_pool_limit=0,  # Disable connection pooling in web process to avoid stale connections
+    # Large videos can take hours. Keep an unacknowledged Redis task longer
+    # than the default one hour, preventing duplicate deliveries mid-encode.
+    broker_transport_options={"visibility_timeout": 24 * 60 * 60},
     # Define queues
     task_queues=(
         Queue("default"),

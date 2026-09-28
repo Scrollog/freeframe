@@ -16,7 +16,7 @@ export function UploadSSEBridge() {
   const processingProjectIds = useMemo(() => {
     const ids = new Set<string>()
     for (const f of files) {
-      if (f.status === 'processing' && f.projectId) {
+      if ((f.status === 'queued' || f.status === 'processing') && f.projectId) {
         ids.add(f.projectId)
       }
     }

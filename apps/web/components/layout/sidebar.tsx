@@ -54,7 +54,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     ? (branding?.logo_light_url ?? branding?.logo_dark_url)
     : (branding?.logo_dark_url ?? branding?.logo_light_url)
   const [notifOpen, setNotifOpen] = React.useState(false)
-  const activeUploads = uploadFiles.filter((f) => f.status === 'uploading' || f.status === 'pending' || f.status === 'processing').length
+  const activeUploads = uploadFiles.filter((f) => f.status === 'uploading' || f.status === 'pending' || f.status === 'queued' || f.status === 'processing').length
   const { data: instance } = useSWR<InstanceSettings>(
     '/instance/settings',
     () => api.get<InstanceSettings>('/instance/settings'),

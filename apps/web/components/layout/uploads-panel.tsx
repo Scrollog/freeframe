@@ -31,7 +31,7 @@ type FilterTab = 'all' | 'active' | 'complete' | 'failed'
 function matchesFilter(status: UploadStatus, filter: FilterTab): boolean {
   switch (filter) {
     case 'all': return true
-    case 'active': return status === 'pending' || status === 'uploading' || status === 'processing'
+    case 'active': return status === 'pending' || status === 'uploading' || status === 'queued' || status === 'processing'
     case 'complete': return status === 'complete'
     case 'failed': return status === 'failed' || status === 'cancelled'
   }
@@ -71,6 +71,8 @@ function StatusBadge({ status }: { status: UploadStatus }) {
       return <span className="inline-flex items-center rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-tertiary">Queued</span>
     case 'uploading':
       return <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"><Loader2 className="h-2.5 w-2.5 animate-spin" />Uploading</span>
+    case 'queued':
+      return <span className="inline-flex items-center rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-tertiary">Queued</span>
     case 'processing':
       return <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400"><Cog className="h-2.5 w-2.5 animate-spin" />Processing</span>
     case 'complete':
@@ -87,6 +89,7 @@ function StatusBadge({ status }: { status: UploadStatus }) {
 function UploadItem({ upload }: { upload: UploadFile }) {
   const { cancelUpload, removeFile } = useUploadStore()
   const isUploading = upload.status === 'pending' || upload.status === 'uploading'
+  const isQueued = upload.status === 'queued'
   const isProcessing = upload.status === 'processing'
   const showProgress = isUploading || isProcessing
 
@@ -133,6 +136,9 @@ function UploadItem({ upload }: { upload: UploadFile }) {
             <span className="text-[11px] text-amber-400">
               {upload.processingProgress > 0 ? `Processing ${upload.processingProgress}%` : 'Processing...'}
             </span>
+          )}
+          {isQueued && (
+            <span className="text-[11px] text-text-tertiary">Waiting for processing worker</span>
           )}
           {upload.status === 'complete' && (
             <span className="text-[11px] text-text-tertiary">
@@ -222,7 +228,7 @@ export function UploadsPanel() {
 
   const counts = {
     all: files.length,
-    active: files.filter((f) => f.status === 'pending' || f.status === 'uploading' || f.status === 'processing').length,
+    active: files.filter((f) => f.status === 'pending' || f.status === 'uploading' || f.status === 'queued' || f.status === 'processing').length,
     complete: files.filter((f) => f.status === 'complete').length,
     failed: files.filter((f) => f.status === 'failed' || f.status === 'cancelled').length,
   }

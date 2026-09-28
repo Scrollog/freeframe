@@ -28,7 +28,15 @@ def _run_async(coro):
         loop.close()
 
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
+@celery_app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    # The remote transcoder is optional. Do not acknowledge a job before it
+    # finishes, so a lost processing node does not strand the video forever.
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def process_asset(self, asset_id: str, version_id: str):
     """Main processing task dispatched after upload completes."""
     db = SessionLocal()

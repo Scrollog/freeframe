@@ -165,7 +165,7 @@ def test_version_is_left_untouched_when_completion_is_refused(
 # ------------------------------------------------------------------ replay guard
 
 @pytest.mark.parametrize(
-    "status", [ProcessingStatus.processing, ProcessingStatus.ready, ProcessingStatus.failed]
+    "status", [ProcessingStatus.queued, ProcessingStatus.processing, ProcessingStatus.ready, ProcessingStatus.failed]
 )
 def test_replaying_a_finished_upload_is_refused(
     client, auth_headers, mock_db, test_user, monkeypatch, status
@@ -202,7 +202,7 @@ def test_replaying_a_finished_upload_is_refused(
     assert dispatched == []
 
 
-@pytest.mark.parametrize("status", [ProcessingStatus.processing, ProcessingStatus.ready])
+@pytest.mark.parametrize("status", [ProcessingStatus.queued, ProcessingStatus.processing, ProcessingStatus.ready])
 def test_retry_of_an_assembled_completed_upload_returns_its_real_status(
     client, auth_headers, mock_db, test_user, monkeypatch, status
 ):
@@ -316,7 +316,7 @@ def test_retry_after_a_lost_response_succeeds_instead_of_failing(
     resp = client.post("/upload/complete", json=_body(media_file), headers=auth_headers)
 
     assert resp.status_code == 200
-    assert version.processing_status == ProcessingStatus.processing
+    assert version.processing_status == ProcessingStatus.queued
 
 
 def test_a_reaped_upload_is_reported_rather_than_treated_as_done(

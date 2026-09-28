@@ -317,7 +317,7 @@ if (typeof document !== 'undefined') {
   })
 }
 
-export type UploadStatus = 'pending' | 'uploading' | 'processing' | 'complete' | 'failed' | 'cancelled'
+export type UploadStatus = 'pending' | 'uploading' | 'queued' | 'processing' | 'complete' | 'failed' | 'cancelled'
 
 export interface UploadFile {
   id: string
@@ -381,6 +381,7 @@ interface UploadStore {
 function mapProcessingStatus(status: string): UploadStatus {
   switch (status) {
     case 'uploading': return 'uploading'
+    case 'queued': return 'queued'
     case 'processing': return 'processing'
     case 'ready': return 'complete'
     case 'failed': return 'failed'
@@ -388,7 +389,7 @@ function mapProcessingStatus(status: string): UploadStatus {
   }
 }
 
-type LandedUploadStatus = 'processing' | 'complete'
+type LandedUploadStatus = 'queued' | 'processing' | 'complete'
 type UpdateUploadFile = (fileId: string, patch: Partial<UploadFile>) => void
 
 /**
@@ -408,7 +409,7 @@ async function completedVersionStatus(
   if (!asset?.latest_version || asset.latest_version.id !== versionId) return null
 
   const status = mapProcessingStatus(asset.latest_version.processing_status)
-  return status === 'processing' || status === 'complete' ? status : null
+  return status === 'queued' || status === 'processing' || status === 'complete' ? status : null
 }
 
 interface UploadFailureContext {
@@ -765,8 +766,8 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
   updateProcessingProgress: (assetId, percent) => {
     set((s) => ({
       files: s.files.map((f) =>
-        f.assetId === assetId && f.status === 'processing'
-          ? { ...f, processingProgress: percent }
+        f.assetId === assetId && (f.status === 'queued' || f.status === 'processing')
+          ? { ...f, status: 'processing' as const, processingProgress: percent }
           : f,
       ),
     }))
@@ -775,7 +776,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
   markProcessingComplete: (assetId) => {
     set((s) => ({
       files: s.files.map((f) =>
-        f.assetId === assetId && f.status === 'processing'
+        f.assetId === assetId && (f.status === 'queued' || f.status === 'processing')
           ? { ...f, status: 'complete' as const, processingProgress: 100 }
           : f,
       ),
@@ -785,7 +786,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
   markProcessingFailed: (assetId, error) => {
     set((s) => ({
       files: s.files.map((f) =>
-        f.assetId === assetId && f.status === 'processing'
+        f.assetId === assetId && (f.status === 'queued' || f.status === 'processing')
           ? { ...f, status: 'failed' as const, error }
           : f,
       ),
@@ -793,7 +794,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
   },
 
   refreshProcessingItems: async () => {
-    const processingFiles = get().files.filter((f) => f.status === 'processing' && f.assetId)
+    const processingFiles = get().files.filter((f) => (f.status === 'queued' || f.status === 'processing') && f.assetId)
     if (!processingFiles.length) return
     try {
       const results = await Promise.all(
@@ -803,7 +804,7 @@ const storeCreator: StateCreator<UploadStore, [['zustand/persist', unknown]]> = 
       )
       set((s) => ({
         files: s.files.map((f) => {
-          if (f.status !== 'processing' || !f.assetId) return f
+          if ((f.status !== 'queued' && f.status !== 'processing') || !f.assetId) return f
           const idx = processingFiles.findIndex((pf) => pf.assetId === f.assetId)
           const asset = idx >= 0 ? results[idx] : null
           if (!asset?.latest_version) return f

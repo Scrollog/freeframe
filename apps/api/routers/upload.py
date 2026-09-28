@@ -296,6 +296,7 @@ def complete_upload(
     # useful answer is the version's real state rather than a false conflict.
     if version.processing_status != ProcessingStatus.uploading:
         completed_before = version.processing_status in (
+            ProcessingStatus.queued,
             ProcessingStatus.processing,
             ProcessingStatus.ready,
         )
@@ -314,6 +315,7 @@ def complete_upload(
             # after another worker has marked the version failed.
             db.refresh(version)
             if version.processing_status in (
+                ProcessingStatus.queued,
                 ProcessingStatus.processing,
                 ProcessingStatus.ready,
             ):
@@ -332,7 +334,7 @@ def complete_upload(
     s3_key = media_file.s3_key_raw
 
     def _finish() -> CompleteUploadResponse:
-        """Atomically claim the version before dispatching its transcode job."""
+        """Atomically queue the version before dispatching its transcode job."""
         # The declared size is used for the pre-upload guard, but the completed
         # object is the source of truth for lasting storage accounting. Do this
         # best-effort: a transient HeadObject failure must not reject bytes that
@@ -356,7 +358,7 @@ def complete_upload(
                 AssetVersion.processing_status == ProcessingStatus.uploading,
             )
             .update(
-                {AssetVersion.processing_status: ProcessingStatus.processing},
+                {AssetVersion.processing_status: ProcessingStatus.queued},
                 synchronize_session=False,
             )
         )
@@ -364,10 +366,10 @@ def complete_upload(
 
         if claimed:
             # A SQLAlchemy bulk update does not refresh the loaded instance.
-            version.processing_status = ProcessingStatus.processing
+            version.processing_status = ProcessingStatus.queued
             background_tasks.add_task(_trigger_processing, version.asset_id, version.id)
         return CompleteUploadResponse(
-            status="processing", asset_id=version.asset_id, version_id=version.id
+            status="queued", asset_id=version.asset_id, version_id=version.id
         )
 
     try:
@@ -505,9 +507,9 @@ def abort_upload(
         if assembled:
             logger.warning(
                 "abort called for upload %s but the object is already complete; "
-                "recording it as processing instead of failed", version.id,
+                "recording it as queued instead of failed", version.id,
             )
-            version.processing_status = ProcessingStatus.processing
+            version.processing_status = ProcessingStatus.queued
             db.commit()
             background_tasks.add_task(_trigger_processing, version.asset_id, version.id)
             return

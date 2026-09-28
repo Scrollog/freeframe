@@ -25,6 +25,9 @@ class AssetStatus(str, PyEnum):
 
 class ProcessingStatus(str, PyEnum):
     uploading = "uploading"
+    # The raw upload is durable and its Celery task is waiting for a dedicated
+    # transcoding worker. This remains distinct from an active transcode.
+    queued = "queued"
     processing = "processing"
     ready = "ready"
     failed = "failed"

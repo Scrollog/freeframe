@@ -339,7 +339,11 @@ def delete_asset_version(
     ).first()
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
-    if version.processing_status in (ProcessingStatus.uploading, ProcessingStatus.processing):
+    if version.processing_status in (
+        ProcessingStatus.uploading,
+        ProcessingStatus.queued,
+        ProcessingStatus.processing,
+    ):
         raise HTTPException(status_code=409, detail="A version cannot be deleted while it is processing")
 
     live_version_count = db.query(AssetVersion).filter(

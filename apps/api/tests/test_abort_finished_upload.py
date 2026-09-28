@@ -49,7 +49,7 @@ def _abort(client, auth_headers):
     )
 
 
-def test_a_completed_upload_is_recorded_as_processing_not_failed(
+def test_a_completed_upload_is_recorded_as_queued_not_failed(
     client, auth_headers, mock_db, abort_rows, monkeypatch
 ):
     """The whole point: the object is there, so this upload did not fail."""
@@ -61,7 +61,7 @@ def test_a_completed_upload_is_recorded_as_processing_not_failed(
     monkeypatch.setattr(upload_module, "_trigger_processing", lambda a, v: dispatched.append(v))
 
     assert _abort(client, auth_headers).status_code == 204
-    assert version.processing_status == ProcessingStatus.processing
+    assert version.processing_status == ProcessingStatus.queued
     # It never got its transcode dispatched either, so do that now.
     assert dispatched == [version.id]
 

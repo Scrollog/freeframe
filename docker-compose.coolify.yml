@@ -158,6 +158,9 @@ services:
 
   # ─── Workers Celery (mesma imagem da API, sem domínio) ──────
   worker:
+    # Video processing belongs on the optional remote transcoder deployment.
+    # The main application remains usable when that server is offline.
+    profiles: ["local-transcoding"]
     build:
       context: .
       dockerfile: apps/api/Dockerfile.prod
@@ -186,7 +189,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    command: sh -c "celery -A apps.api.tasks.celery_app worker -Q transcoding -c $${TRANSCODING_CONCURRENCY:-2} --loglevel=$${CELERY_LOG_LEVEL:-info}"
+    command: sh -c "celery -A apps.api.tasks.celery_app worker -Q transcoding -c $${TRANSCODING_CONCURRENCY:-2} --prefetch-multiplier=1 --loglevel=$${CELERY_LOG_LEVEL:-info}"
     # TRANSCODING_CONCURRENCY limita tarefas Celery, NAO o ffmpeg por dentro:
     # sem -threads o libx264 usa todos os nucleos, entao um job ocupa a maquina
     # (medido: 555% de CPU num host de 8 nucleos, com duas stacks Supabase ao lado).

@@ -335,6 +335,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
 
   const versionReady = currentVersion?.processing_status === 'ready'
   const versionProcessing =
+    currentVersion?.processing_status === 'queued' ||
     currentVersion?.processing_status === 'processing' ||
     currentVersion?.processing_status === 'uploading'
 
@@ -349,9 +350,13 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                   <Loader2 className="h-6 w-6 animate-spin text-accent" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-text-primary">Processing asset</p>
+                  <p className="text-sm font-medium text-text-primary">
+                    {currentVersion?.processing_status === 'queued' ? 'Waiting for processing worker' : 'Processing asset'}
+                  </p>
                   <p className="text-xs text-text-tertiary mt-1">
-                    This may take a few minutes depending on file size.
+                    {currentVersion?.processing_status === 'queued'
+                      ? 'This version will start automatically when a processing worker is available.'
+                      : 'This may take a few minutes depending on file size.'}
                   </p>
                 </div>
               </>
@@ -689,6 +694,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                           'text-xs capitalize',
                           currentVersion.processing_status === 'ready' && 'text-status-success',
                           currentVersion.processing_status === 'processing' && 'text-status-warning',
+                          currentVersion.processing_status === 'queued' && 'text-status-info',
                           currentVersion.processing_status === 'failed' && 'text-status-error',
                           currentVersion.processing_status === 'uploading' && 'text-text-tertiary',
                         )}>
