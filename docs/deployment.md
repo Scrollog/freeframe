@@ -303,13 +303,17 @@ offline; completed uploads stay **Queued** in Redis until it returns.
    Tailscale). Do not expose PostgreSQL or Redis to the public Internet.
 2. Create a second Coolify application from the same revision of this repository
    and select [`docker-compose.transcoder-worker.yml`](../docker-compose.transcoder-worker.yml).
-3. Set the second application's `DATABASE_URL`, `REDIS_URL`, and `S3_ENDPOINT`
+3. On the primary application, set `WORKER_VPN_BIND_ADDRESS` to its WireGuard
+   address (for example `10.66.66.1`) before deploying. This binds PostgreSQL
+   and Redis only to the VPN interface. Permit those ports in the host firewall
+   only from the worker's WireGuard address.
+4. Set the second application's `DATABASE_URL`, `REDIS_URL`, and `S3_ENDPOINT`
    to private or otherwise worker-reachable endpoints of the primary deployment.
    `S3_ENDPOINT` must not be `http://minio:9000`, which only resolves inside the
    primary Compose network. `S3_PUBLIC_ENDPOINT` is optional on this worker.
-4. Copy the S3 credentials, `S3_BUCKET`, `JWT_SECRET`, `FRONTEND_URL`, and
+5. Copy the S3 credentials, `S3_BUCKET`, `JWT_SECRET`, `FRONTEND_URL`, and
    optional transcoder settings. Start with `TRANSCODING_CONCURRENCY=1`.
-5. Deploy the remote worker first, then deploy the primary application. The
+6. Deploy the remote worker first, then deploy the primary application. The
    worker name and logs are distinct, but both deployments must use the same
    repository revision.
 
