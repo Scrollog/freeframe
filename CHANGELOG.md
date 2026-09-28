@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Upgrade notes
 
 - **A database migration is required.** Run `alembic upgrade head` (revision
-  `1b2c3d4e5f6a`) before deploying a remote transcoding worker. It adds the
+  `2c3d4e5f6a7b`) before deploying a remote transcoding worker. It adds the
   `queued` processing state used while the optional worker is offline and
   joins the existing migration histories.
 - **A database migration is required.** Run `alembic upgrade head` (revision `fb2c3d4e5f6a`) to add secure short codes, configurable public-share metadata, and custom share-link aliases.
