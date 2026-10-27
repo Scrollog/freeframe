@@ -294,12 +294,21 @@ export function VideoPlayer({
     }
   }, [currentTime, setPlayheadTime]);
 
+  const arrowSequence = useRef({ direction: '', time: 0, step: 0 });
+  const [seekFeedback, setSeekFeedback] = useState({ seconds: 0, visible: false });
+  const seekFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (seekFeedbackTimer.current) clearTimeout(seekFeedbackTimer.current);
+  }, []);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable) ||
         isDrawingMode
       ) {
         return;
@@ -319,12 +328,25 @@ export function VideoPlayer({
           togglePlay();
           break;
         case "ArrowLeft":
+        case "ArrowRight": {
+          if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) break;
           e.preventDefault();
-          seek(currentTime - 5);
+          const now = Date.now();
+          const previous = arrowSequence.current;
+          const step = e.repeat ? 1 : previous.direction === e.code && now - previous.time < 1000 ? Math.min(previous.step + 1, 10) : 1;
+          arrowSequence.current = { direction: e.code, time: now, step: e.repeat ? 0 : step };
+          const seconds = e.code === 'ArrowRight' ? step : -step;
+          seek((videoRef.current?.currentTime ?? currentTime) + seconds);
+          setSeekFeedback({ seconds, visible: true });
+          if (seekFeedbackTimer.current) clearTimeout(seekFeedbackTimer.current);
+          seekFeedbackTimer.current = setTimeout(() => setSeekFeedback((feedback) => ({ ...feedback, visible: false })), 700);
           break;
-        case "ArrowRight":
+        }
+        case "ArrowUp":
+        case "ArrowDown":
+          if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) break;
           e.preventDefault();
-          seek(currentTime + 5);
+          setVolume(Math.min(1, Math.max(0, (videoRef.current?.volume ?? volume) + (e.code === 'ArrowUp' ? 0.1 : -0.1))));
           break;
         case "KeyJ":
           seek(currentTime - 10);
@@ -340,7 +362,7 @@ export function VideoPlayer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [togglePlay, seek, currentTime, isDrawingMode]);
+  }, [togglePlay, seek, currentTime, isDrawingMode, setVolume, videoRef, volume]);
 
   const changeZoom = useCallback((amount: number) => {
     setZoom((current) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current + amount)));
@@ -496,6 +518,13 @@ export function VideoPlayer({
               {overlay}
             </VideoFrameConstraint>
           )}
+        </div>
+
+        <div
+          aria-hidden="true"
+          className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-lg bg-black/70 px-4 py-2 text-sm font-medium text-white transition-opacity duration-200', seekFeedback.seconds < 0 ? 'left-1/4' : 'right-1/4', seekFeedback.visible ? 'opacity-100' : 'opacity-0')}
+        >
+          {seekFeedback.seconds > 0 ? '+' : ''}{seekFeedback.seconds}s
         </div>
 
         {/* Loading spinner */}

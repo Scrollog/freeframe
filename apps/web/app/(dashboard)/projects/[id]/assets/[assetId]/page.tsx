@@ -260,24 +260,6 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     router.push(`/projects/${projectId}/assets/${assetId}`)
   }
 
-  // Keyboard navigation for prev/next asset
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (searchParams.get('compare')) return
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.key === 'ArrowLeft' && prevAsset) {
-        e.preventDefault()
-        navigateAsset(prevAsset.id)
-      }
-      if (e.key === 'ArrowRight' && nextAsset) {
-        e.preventDefault()
-        navigateAsset(nextAsset.id)
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [prevAsset, nextAsset, searchParams])
-
   if (isLoading || !asset) {
     return (
       <div className="flex h-full items-center justify-center">
