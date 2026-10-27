@@ -594,8 +594,7 @@ export function ProgressBar({
       <div
         ref={trackRef}
         className={cn(
-          "relative mx-3 h-1 origin-bottom transition-transform duration-200 ease-out cursor-pointer touch-none bg-border rounded-full before:absolute before:-inset-y-3 before:inset-x-0 before:content-['']",
-          isTrackHovered ? 'scale-y-[3]' : 'scale-y-100',
+          "relative mx-3 h-1 cursor-pointer touch-none before:absolute before:-top-3 before:bottom-0 before:inset-x-0 before:content-['']",
         )}
         onMouseEnter={() => setIsTrackHovered(true)}
         onMouseMove={handleMouseMove}
@@ -610,6 +609,7 @@ export function ProgressBar({
         onPointerCancel={handlePointerCancel}
         title="Shift + drag to select a comment range"
       >
+        <div className={cn('absolute inset-0 origin-bottom rounded-full bg-border transition-transform duration-200 ease-out', isTrackHovered ? 'scale-y-[3]' : 'scale-y-100')} />
         {/* Buffered range */}
         <div
           className="absolute inset-y-0 left-0 bg-border-secondary rounded-full"

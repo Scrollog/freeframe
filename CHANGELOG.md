@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow guests to edit and delete their own comments when the frontend and API use different origins.
 - Keep comment edits and deletions synchronized with the current review session, and show an error when either action fails.
 
 ### Upgrade notes
