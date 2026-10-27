@@ -39,7 +39,7 @@ function renderPanel() {
   return render(
     <CommentPanel
       comments={[c26, cNone, c3]}
-      onResolve={noop} onDelete={noop}
+      onResolve={noop} onUpdate={noop} onDelete={noop}
       onAddReaction={noop} onRemoveReaction={noop}
       onReply={() => {}}
     />,

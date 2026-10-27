@@ -370,6 +370,7 @@ export function CompareOverlay({ asset, versions, rightVersion, onClose, canComm
                 comments={sideA.comments}
                 currentUserId={user?.id}
                 onResolve={async (id) => { await sideA.resolveComment(id) }}
+                onUpdate={async (id, body) => { await sideA.updateComment(id, body) }}
                 onDelete={async (id) => { await sideA.deleteComment(id) }}
                 onAddReaction={async (id, e) => { await sideA.addReaction(id, e) }}
                 onRemoveReaction={async (id, e) => { await sideA.removeReaction(id, e) }}
@@ -585,6 +586,7 @@ export function CompareOverlay({ asset, versions, rightVersion, onClose, canComm
                 comments={sideB.comments}
                 currentUserId={user?.id}
                 onResolve={async (id) => { await sideB.resolveComment(id) }}
+                onUpdate={async (id, body) => { await sideB.updateComment(id, body) }}
                 onDelete={async (id) => { await sideB.deleteComment(id) }}
                 onAddReaction={async (id, e) => { await sideB.addReaction(id, e) }}
                 onRemoveReaction={async (id, e) => { await sideB.removeReaction(id, e) }}

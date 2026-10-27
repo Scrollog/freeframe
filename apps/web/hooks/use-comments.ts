@@ -122,6 +122,13 @@ export function useComments(assetId: string | null, versionId: string | null) {
     await mutate()
   }
 
+  // ─── Update comment ─────────────────────────────────────────────────────────
+
+  async function updateComment(commentId: string, body: string): Promise<void> {
+    await api.patch(`/comments/${commentId}`, { body })
+    await mutate()
+  }
+
   // ─── Delete comment ──────────────────────────────────────────────────────────
 
   async function deleteComment(commentId: string): Promise<void> {
@@ -148,6 +155,7 @@ export function useComments(assetId: string | null, versionId: string | null) {
     mutate,
     createComment,
     resolveComment,
+    updateComment,
     deleteComment,
     addReaction,
     removeReaction,

@@ -144,6 +144,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     isLoading: commentsLoading,
     createComment,
     resolveComment,
+    updateComment,
     deleteComment,
     addReaction,
     removeReaction,
@@ -648,6 +649,7 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
                       canDeleteAnyComment || comment.author_id === user?.id
                     }
                     onResolve={resolveComment}
+                    onUpdate={updateComment}
                     onDelete={deleteComment}
                     onAddReaction={addReaction}
                     onRemoveReaction={removeReaction}

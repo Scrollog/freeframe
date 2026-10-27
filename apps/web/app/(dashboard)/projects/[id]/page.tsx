@@ -153,6 +153,7 @@ export default function ProjectDetailPage() {
   const {
     comments,
     resolveComment,
+    updateComment,
     deleteComment,
     addReaction,
     removeReaction,
@@ -1083,6 +1084,7 @@ export default function ProjectDetailPage() {
                         comments={comments as any}
                         currentUserId={user?.id}
                         onResolve={resolveComment}
+                        onUpdate={updateComment}
                         onDelete={deleteComment}
                         onAddReaction={addReaction}
                         onRemoveReaction={removeReaction}

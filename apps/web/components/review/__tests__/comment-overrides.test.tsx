@@ -40,7 +40,7 @@ describe('CommentPanel onSeekToTimecode', () => {
     render(
       <CommentPanel
         comments={[timecodedComment()]}
-        onResolve={noop} onDelete={noop}
+        onResolve={noop} onUpdate={noop} onDelete={noop}
         onAddReaction={noop} onRemoveReaction={noop}
         onReply={() => {}}
         onSeekToTimecode={onSeek}
@@ -58,7 +58,7 @@ describe('CommentPanel onShowAnnotation', () => {
     render(
       <CommentPanel
         comments={[annotatedComment()]}
-        onResolve={noop} onDelete={noop}
+        onResolve={noop} onUpdate={noop} onDelete={noop}
         onAddReaction={noop} onRemoveReaction={noop}
         onReply={() => {}}
         onSeekToTimecode={vi.fn()}
@@ -75,7 +75,7 @@ describe('CommentPanel onShowAnnotation', () => {
     render(
       <CommentPanel
         comments={[annotatedComment()]}
-        onResolve={noop} onDelete={noop}
+        onResolve={noop} onUpdate={noop} onDelete={noop}
         onAddReaction={noop} onRemoveReaction={noop}
         onReply={() => {}}
         onSeekToTimecode={vi.fn()}
@@ -92,7 +92,7 @@ describe('CommentPanel onShowAnnotation', () => {
     render(
       <CommentPanel
         comments={[timecodedComment()]}
-        onResolve={noop} onDelete={noop}
+        onResolve={noop} onUpdate={noop} onDelete={noop}
         onAddReaction={noop} onRemoveReaction={noop}
         onReply={() => {}}
         onSeekToTimecode={vi.fn()}
@@ -109,7 +109,7 @@ describe('CommentPanel onShowAnnotation', () => {
     render(
       <CommentPanel
         comments={[annotatedComment()]}
-        onResolve={noop} onDelete={noop}
+        onResolve={noop} onUpdate={noop} onDelete={noop}
         onAddReaction={noop} onRemoveReaction={noop}
         onReply={() => {}}
         onSeekToTimecode={vi.fn()}
@@ -125,7 +125,7 @@ describe('CommentPanel onShowAnnotation', () => {
     render(
       <CommentPanel
         comments={[annotatedComment()]}
-        onResolve={noop} onDelete={noop}
+        onResolve={noop} onUpdate={noop} onDelete={noop}
         onAddReaction={noop} onRemoveReaction={noop}
         onReply={() => {}}
         onSeekToTimecode={vi.fn()}

@@ -53,7 +53,7 @@ interface CommentPanelProps {
   /** Grants deletion without granting edit rights (for project administrators). */
   canDeleteComment?: (comment: CommentWithReplies) => boolean;
   canManageComment?: (comment: CommentWithReplies) => boolean;
-  onUpdate?: (commentId: string, body: string) => Promise<void>;
+  onUpdate: (commentId: string, body: string) => Promise<void>;
   onResolve: (commentId: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
   onAddReaction: (commentId: string, emoji: string) => Promise<void>;
@@ -204,6 +204,7 @@ function CommentMenu({
         onClick={(event) => {
           event.stopPropagation();
         }}
+        aria-label="Comment actions"
         aria-expanded={open}
         aria-haspopup="menu"
         className="mobile-touch-target h-7 w-7 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary transition-colors"
@@ -421,7 +422,7 @@ interface CommentItemProps {
   newCommentIds?: readonly string[];
   canDeleteComment?: (comment: CommentWithReplies) => boolean;
   canManageComment?: (comment: CommentWithReplies) => boolean;
-  onUpdate?: (commentId: string, body: string) => Promise<void>;
+  onUpdate: (commentId: string, body: string) => Promise<void>;
   replyingTo?: string | null;
   isFocused?: boolean;
   onResolve: (commentId: string) => Promise<void>;
@@ -474,6 +475,7 @@ function CommentItem({
   const [editing, setEditing] = React.useState(false);
   const [editBody, setEditBody] = React.useState(comment.body);
   const [saving, setSaving] = React.useState(false);
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const [avatarError, setAvatarError] = React.useState(false);
 
   // Scroll into view when focused from progress bar marker click
@@ -529,6 +531,28 @@ function CommentItem({
     const existing = reactionGroups.find((r) => r.emoji === emoji);
     if (existing?.userReacted) await onRemoveReaction(comment.id, emoji);
     else await onAddReaction(comment.id, emoji);
+  }
+
+  async function handleUpdate() {
+    setSaving(true);
+    setActionError(null);
+    try {
+      await onUpdate(comment.id, editBody.trim());
+      setEditing(false);
+    } catch {
+      setActionError('Could not save this comment. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setActionError(null);
+    try {
+      await onDelete(comment.id);
+    } catch {
+      setActionError('Could not delete this comment. Please try again.');
+    }
   }
 
   return (
@@ -664,20 +688,7 @@ function CommentItem({
               <div className="flex items-center gap-1.5 mt-1">
                 <button
                   disabled={saving || !editBody.trim()}
-                  onClick={async () => {
-                    setSaving(true);
-                    try {
-                      if (onUpdate) {
-                        await onUpdate(comment.id, editBody.trim());
-                      } else {
-                        const { api } = await import('@/lib/api');
-                        await api.patch(`/comments/${comment.id}`, { body: editBody.trim() });
-                        comment.body = editBody.trim();
-                      }
-                      setEditing(false);
-                    } catch { /* silent */ }
-                    finally { setSaving(false); }
-                  }}
+                  onClick={() => void handleUpdate()}
                   className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
                 >
                   {saving ? 'Saving...' : 'Save'}
@@ -695,6 +706,7 @@ function CommentItem({
               {comment.body}
             </p>
           )}
+          {actionError && <p className="mt-1 text-xs text-status-error">{actionError}</p>}
 
           {(comment.attachments?.length ?? 0) > 0 && (
             <div className="mt-2 grid gap-2">
@@ -777,7 +789,7 @@ function CommentItem({
                   commentId={comment.id}
                   assetId={comment.asset_id}
                   onEdit={() => { setEditing(true); setEditBody(comment.body); }}
-                  onDelete={onDelete}
+                  onDelete={handleDelete}
                 />
               </div>
 

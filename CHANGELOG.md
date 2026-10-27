@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep comment edits and deletions synchronized with the current review session, and show an error when either action fails.
+
 ### Upgrade notes
 
 - **A database migration is required.** Run `alembic upgrade head` (revision
