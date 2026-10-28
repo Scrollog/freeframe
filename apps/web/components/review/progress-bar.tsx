@@ -609,7 +609,7 @@ export function ProgressBar({
         onPointerCancel={handlePointerCancel}
         title="Shift + drag to select a comment range"
       >
-        <div className={cn('absolute inset-0 origin-bottom rounded-full bg-border transition-transform duration-200 ease-out', isTrackHovered ? 'scale-y-[3]' : 'scale-y-100')} />
+        <div className={cn('pointer-events-none absolute inset-0 origin-bottom rounded-full bg-border transition-transform duration-200 ease-out', isTrackHovered ? 'scale-y-[3]' : 'scale-y-100')}>
         {/* Buffered range */}
         <div
           className="absolute inset-y-0 left-0 bg-border-secondary rounded-full"
@@ -663,6 +663,7 @@ export function ProgressBar({
           className="absolute -top-px -translate-x-1/2 w-[3px] h-1.5 rounded-[1px] bg-white shadow-sm pointer-events-none z-10"
           style={{ left: `${playPercent}%`, transform: 'translateX(-50%)' }}
         />
+        </div>
       </div>
 
       {/* Comment markers row — below the progress bar */}
