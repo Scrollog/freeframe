@@ -320,9 +320,11 @@ interface ConfigurePhaseProps {
   /** A single asset makes an asset link, which only takes a theme and accent */
   linkKind: 'asset' | 'collection'
   canCopyCurrentView: boolean
+  /** The project whose folder view "Use my current view" copies */
+  projectId: string
 }
 
-function ConfigurePhase({ defaultTitle, onBack, onCreate, creating, createdUrl, onClose, linkKind, canCopyCurrentView }: ConfigurePhaseProps) {
+function ConfigurePhase({ defaultTitle, onBack, onCreate, creating, createdUrl, onClose, linkKind, canCopyCurrentView, projectId }: ConfigurePhaseProps) {
   const [title, setTitle] = React.useState(defaultTitle)
   // Comments on, downloads off, matching ShareLinkCreate on the API. Both have to
   // move together or a link created through the API keeps the old behaviour while
@@ -544,7 +546,7 @@ function ConfigurePhase({ defaultTitle, onBack, onCreate, creating, createdUrl, 
                 onChange={(patch) => setAppearance((a) => ({ ...a, ...patch }))}
                 onUseCurrentView={
                   canCopyCurrentView
-                    ? () => setAppearance((a) => ({ ...a, ...appearanceFromView() }))
+                    ? () => setAppearance((a) => ({ ...a, ...appearanceFromView(projectId) }))
                     : undefined
                 }
               />
@@ -1371,6 +1373,7 @@ export function ShareCreateDialog({
                   : 'collection'
               }
               canCopyCurrentView={currentViewAvailable}
+              projectId={projectId}
             />
           ) : (
             <SelectionPhase

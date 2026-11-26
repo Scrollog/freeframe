@@ -17,6 +17,7 @@ import { SegmentRow, SelectRow, SettingRow, ToggleRow } from '@/components/ui/se
 import { parseHex } from '@/lib/accent'
 import { cn } from '@/lib/utils'
 import { useViewStore } from '@/stores/view-store'
+import { resolveProjectView } from '@/lib/project-view'
 import type { ShareLinkAppearance } from '@/types'
 
 /**
@@ -39,7 +40,8 @@ export const DEFAULT_SHARE_APPEARANCE: ShareLinkAppearance = {
 }
 
 /**
- * The fields "Use my current view" copies out of the folder view store.
+ * The fields "Use my current view" copies out of the folder view store: the
+ * project's own settings when given its id, the global ones otherwise.
  *
  * Only what a share link can actually express. Theme, accent and open-in-viewer
  * are the link's own (the view has no equivalent), and the view's extras —
@@ -55,9 +57,9 @@ export const DEFAULT_SHARE_APPEARANCE: ShareLinkAppearance = {
  * This is a one-time fill: the caller merges the patch into the link's
  * appearance once, at the click, and nothing after that re-reads the view.
  */
-export function appearanceFromView(): Partial<ShareLinkAppearance> {
+export function appearanceFromView(projectId?: string | null): Partial<ShareLinkAppearance> {
   const { layout, cardSize, aspectRatio, thumbnailScale, showCardInfo, sortKey } =
-    useViewStore.getState()
+    resolveProjectView(useViewStore.getState(), projectId)
   const patch: Partial<ShareLinkAppearance> = {
     layout,
     card_size: cardSize.toLowerCase() as ShareLinkAppearance['card_size'],

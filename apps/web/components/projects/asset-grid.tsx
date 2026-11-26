@@ -15,7 +15,7 @@ import { SelectionMenuItems, type SelectionActions } from './menus/selection-men
 import { AppearancePopover } from './appearance-popover'
 import { SortPopover } from './sort-popover'
 import { MoveToDialog } from './move-to-dialog'
-import { useViewStore } from '@/stores/view-store'
+import { useProjectView } from '@/hooks/use-project-view'
 import { sortAssets } from '@/lib/sort-assets'
 import type { Asset, DownloadOption, User, Folder, FolderTreeNode } from '@/types'
 import type { Collected } from '@/lib/upload-folder-walk'
@@ -179,7 +179,7 @@ export function AssetGrid({
     showUploader,
     sortKey,
     sortDirection,
-  } = useViewStore()
+  } = useProjectView(projectId)
 
   // Where a shift-click range starts: the last item clicked or toggled, as an
   // `itemKey`, since folders and assets share one range.
@@ -404,11 +404,11 @@ export function AssetGrid({
       {!shareMode && (
         <div className="flex items-center gap-1 border-b border-border pb-2.5">
           {/* Left group: Appearance + Fields + Sort */}
-          <AppearancePopover />
+          <AppearancePopover projectId={projectId} />
 
           <div className="h-4 w-px bg-border mx-0.5" />
 
-          <SortPopover />
+          <SortPopover projectId={projectId} />
 
           <div className="flex-1" />
 

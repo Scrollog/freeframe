@@ -11,8 +11,8 @@ import {
   SelectRow,
   ToggleRow as BaseToggleRow,
 } from '@/components/ui/setting-controls'
+import { useProjectView } from '@/hooks/use-project-view'
 import {
-  useViewStore,
   type ViewLayout, type CardSize, type AspectRatio,
   type ThumbnailScale, type TitleLines,
 } from '@/stores/view-store'
@@ -87,7 +87,8 @@ export function AppearancePopoverFrame({ children }: { children: React.ReactNode
 
 // ─── Main popover ───────────────────────────────────────────────────────────
 
-export function AppearancePopover() {
+/** The folder view's Appearance. Inside a project it changes only that project. */
+export function AppearancePopover({ projectId }: { projectId?: string | null } = {}) {
   const {
     layout, setLayout,
     cardSize, setCardSize,
@@ -98,7 +99,7 @@ export function AppearancePopover() {
     flattenFolders, setFlattenFolders,
     showFileSize, setShowFileSize,
     showUploader, setShowUploader,
-  } = useViewStore()
+  } = useProjectView(projectId)
 
   return (
     <AppearancePopoverFrame>
