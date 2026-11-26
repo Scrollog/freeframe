@@ -24,6 +24,7 @@ import { projectFolderHref } from '@/lib/project-links'
 import { useUploadStore, visibleFiles } from '@/stores/upload-store'
 import { useBreadcrumbStore } from '@/stores/breadcrumb-store'
 import { useViewStore } from '@/stores/view-store'
+import { resolveProjectView } from '@/lib/project-view'
 import { sortAssets } from '@/lib/sort-assets'
 import { canCompare } from '@/lib/compare-time'
 import {
@@ -146,8 +147,9 @@ function ReviewScreenInner({ projectId }: { projectId: string }) {
     asset ? `/projects/${projectId}/assets?folder_id=${asset.folder_id ?? 'root'}` : null,
     (key: string) => api.get<AssetResponse[]>(key),
   )
-  const sortKey = useViewStore((s) => s.sortKey)
-  const sortDirection = useViewStore((s) => s.sortDirection)
+  // The project's own sort, as its folder view shows it.
+  const sortKey = useViewStore((s) => resolveProjectView(s, projectId).sortKey)
+  const sortDirection = useViewStore((s) => resolveProjectView(s, projectId).sortDirection)
   const navAssets = useMemo(
     () => (folderAssets ? sortAssets(folderAssets, sortKey, sortDirection) : undefined),
     [folderAssets, sortKey, sortDirection],

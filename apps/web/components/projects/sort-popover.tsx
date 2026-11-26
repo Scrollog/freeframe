@@ -4,7 +4,8 @@ import * as React from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { ArrowUpDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useViewStore, type SortKey, type SortDirection } from '@/stores/view-store'
+import { useProjectView } from '@/hooks/use-project-view'
+import type { SortKey, SortDirection } from '@/stores/view-store'
 
 export interface SortOption<K extends string> {
   value: K
@@ -25,8 +26,9 @@ const sortOptions: SortOption<SortKey>[] = [
   { value: 'type', label: 'Type' },
 ]
 
-export function SortPopover() {
-  const { sortKey, setSortKey, sortDirection, toggleSortDirection } = useViewStore()
+/** The folder view's sort. Inside a project it changes only that project. */
+export function SortPopover({ projectId }: { projectId?: string | null } = {}) {
+  const { sortKey, setSortKey, sortDirection, toggleSortDirection } = useProjectView(projectId)
 
   return (
     <SortPopoverView
